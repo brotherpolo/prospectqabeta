@@ -1,4 +1,7 @@
-import { state, getIndex, getItem, deleteQuestion, restoreQuestion, setVerdicts, setFollowUp, removeFromTheme, addToTheme } from './store.js';
+import {
+  state, getIndex, getItem, deleteQuestion, restoreQuestion, setVerdicts, setFollowUp, removeFromTheme, addToTheme,
+  deleteQuestions, restoreQuestions, setCategory, fieldSnapshot, restoreFields, themeSnapshot, restoreThemes,
+} from './store.js';
 import { VERDICTS, verdictLabel, suggestVerdict, accountOf, themeIndex, repsOf, themeTagHTML, themeById, themeHex } from './model.js';
 import { openQuestionDialog } from './dialogs.js';
 import { openImportDialog } from './import.js';
@@ -14,6 +17,8 @@ const PAGE = 100;
 export const ui = {
   q: '', cat: '', account: '', rep: '', theme: '', verdict: '', call: '', ids: null,
   sort: 'newest', attention: false, mine: false, sel: null, limit: PAGE,
+  checked: new Set(), lastChecked: null,
+  density: (() => { try { return localStorage.getItem('qa-density') || 'comfortable'; } catch { return 'comfortable'; } })(),
 };
 
 let root = null;
@@ -103,6 +108,7 @@ export function mount(el, params) {
       <div class="split">
         <section class="results" aria-label="Results">
           <div class="results-head" data-count></div>
+          <div class="bulk-bar" data-bulk hidden></div>
           <div class="list" data-list role="list"></div>
         </section>
         <aside class="detail" data-detail aria-label="Question detail"></aside>
@@ -114,6 +120,8 @@ export function mount(el, params) {
   el.onclick = onClick;
   el.onchange = async (e) => {
     if (e.target.matches('[data-theme-pick]')) { await pickTheme(e.target); return; }
+    if (e.target.matches('[data-bulk-theme]') && e.target.value) { const v = e.target.value; e.target.value = ''; await bulkTheme(v); return; }
+    if (e.target.matches('[data-bulk-cat]') && e.target.value) { const v = e.target.value; e.target.value = ''; await bulkCategory(v); return; }
     const f = e.target.dataset.filter;
     if (!f) return;
     ui[f] = e.target.value;
@@ -175,8 +183,18 @@ export function update() {
 
   const filtersOn = ui.q || ui.cat || ui.account || ui.rep || ui.theme || ui.verdict || ui.call || ui.ids || ui.attention || ui.mine;
   const callNote = ui.call ? state.config.calls.find((c) => c.id === ui.call) : null;
-  root.querySelector('[data-count]').innerHTML = `<span><strong>${list.length}</strong> ${list.length === 1 ? 'result' : 'results'}${filtersOn ? ` of ${total}` : ''}${callNote ? ` from the ${esc(callNote.company)} call on ${esc(fmtDate(callNote.date))}` : ''}${ui.ids ? ' (selected questions)' : ''}</span>
-    ${filtersOn ? '<button type="button" class="link-btn" data-act="reset">Clear filters</button>' : ''}`;
+  const live = new Set(state.items.map((i) => i.id));
+  ui.checked.forEach((id) => { if (!live.has(id)) ui.checked.delete(id); });
+  const nChecked = list.filter((i) => ui.checked.has(i.id)).length;
+  root.querySelector('[data-count]').innerHTML = `<label class="select-all"><input type="checkbox" data-select-all ${list.length && nChecked === list.length ? 'checked' : ''} ${list.length ? '' : 'disabled'} aria-label="Select all ${list.length} results"></label><span class="grow"><strong>${list.length}</strong> ${list.length === 1 ? 'result' : 'results'}${filtersOn ? ` of ${total}` : ''}${callNote ? ` from the ${esc(callNote.company)} call on ${esc(fmtDate(callNote.date))}` : ''}${ui.ids ? ' (selected questions)' : ''}</span>
+    ${filtersOn ? '<button type="button" class="link-btn" data-act="reset">Clear filters</button>' : ''}
+    <span class="tabs density" role="tablist" aria-label="Row size">
+      <button type="button" class="tab" role="tab" data-density="comfortable" aria-selected="${ui.density === 'comfortable'}">Comfortable</button>
+      <button type="button" class="tab" role="tab" data-density="compact" aria-selected="${ui.density === 'compact'}">Compact</button>
+    </span>`;
+  const all = root.querySelector('[data-select-all]');
+  if (all) all.indeterminate = nChecked > 0 && nChecked < list.length;
+  paintBulk();
 
   const listEl = root.querySelector('[data-list]');
   if (!list.length) {
@@ -186,11 +204,17 @@ export function update() {
          <div class="page-actions"><button type="button" class="btn" data-act="import">Import</button><button type="button" class="btn btn-primary" data-act="log">Log a call</button></div></div>`;
   } else {
     const thr = state.config.shortWordThreshold;
+    listEl.className = `list ${ui.density}`;
     listEl.innerHTML = list.slice(0, ui.limit).map((i) => {
       const th = i.themeId ? themeById(i.themeId) : null;
-      return `
-      <button type="button" class="row${th ? ' has-theme' : ''}" ${th ? `style="--tc:${themeHex(th)}"` : ''} role="listitem" data-id="${i.id}" aria-current="${i.id === ui.sel}">
-        <span class="row-id">#${i.id}</span>
+      const on = ui.checked.has(i.id);
+      const verdict = i.verdict ? `<span class="vbadge v-${i.verdict}">${verdictLabel(i.verdict)}</span>` : '';
+      const approved = i.standard ? '<span class="badge badge-ok">Approved</span>' : '';
+      const body = ui.density === 'compact'
+        ? `<span class="row-id">#${i.id}</span>
+           <span class="row-q-compact" title="${esc(i.question)}">${highlight(i.question, t)}</span>
+           <span class="row-tags">${themeTagHTML(i, { short: true })}<span class="tag">${esc(i.topic)}</span>${verdict}${approved}</span>`
+        : `<span class="row-id">#${i.id}</span>
         <span class="row-body">
           <span class="row-q">${highlight(i.question, t)}</span>
           <span class="row-a">${highlight(i.answer, t)}</span>
@@ -198,14 +222,18 @@ export function update() {
             <span>${highlight(accountOf(i), t)}</span>${i.askedAt ? `<span aria-hidden="true">·</span><span>${esc(fmtDate(i.askedAt))}</span>` : ''}<span aria-hidden="true">·</span><span>${highlight(i.answeredBy, t)}</span>
             ${themeTagHTML(i, { short: true })}
             <span class="tag">${esc(i.topic)}</span>
-            ${i.verdict ? `<span class="vbadge v-${i.verdict}">${verdictLabel(i.verdict)}</span>` : ''}
+            ${verdict}
             ${i.kind === 'feedback' ? '<span class="badge badge-accent">Prospect feedback</span>' : ''}
             ${i.standard ? '<span class="badge badge-ok">Approved answer</span>' : ''}
             ${isNoAnswer(i.answer) ? '<span class="badge badge-warn">No answer</span>' : wordCount(i.answer) < thr ? '<span class="badge badge-warn">Brief</span>' : ''}
             ${i.followUp && !i.followUp.done ? '<span class="badge badge-warn">Follow-up open</span>' : ''}
           </span>
-        </span>
-      </button>`;
+        </span>`;
+      return `
+      <div class="row${th ? ' has-theme' : ''}${on ? ' checked' : ''}" ${th ? `style="--tc:${themeHex(th)}"` : ''} role="listitem" data-row="${i.id}" aria-current="${i.id === ui.sel}">
+        <label class="row-check"><input type="checkbox" data-check="${i.id}" ${on ? 'checked' : ''} aria-label="Select #${i.id}"></label>
+        <button type="button" class="row-main" data-id="${i.id}">${body}</button>
+      </div>`;
     }).join('') + (list.length > ui.limit
         ? `<div class="more"><button type="button" class="btn btn-sm" data-act="more">Show ${Math.min(PAGE, list.length - ui.limit)} more</button></div>` : '');
   }
@@ -303,9 +331,9 @@ function select(id) {
   ui.sel = id;
   sheetOpen = matchMedia('(max-width: 860px)').matches;
   history.replaceState(null, '', `#/library/${id}`);
-  root.querySelectorAll('.row').forEach((r) => r.setAttribute('aria-current', String(Number(r.dataset.id) === id)));
+  root.querySelectorAll('.row').forEach((r) => r.setAttribute('aria-current', String(Number(r.dataset.row) === id)));
   renderDetail();
-  if (!sheetOpen) root.querySelector(`.row[data-id="${id}"]`)?.scrollIntoView({ block: 'nearest' });
+  if (!sheetOpen) root.querySelector(`.row[data-row="${id}"]`)?.scrollIntoView({ block: 'nearest' });
 }
 
 function closeSheet() { sheetOpen = false; renderDetail(); }
@@ -344,8 +372,125 @@ export function editSelected() {
   if (ui.sel != null && getItem(ui.sel)) openQuestionDialog(ui.sel);
 }
 
+/** Tick or untick one row; Shift+click ticks the whole range from the last one. */
+function toggleCheck(id, on, shift) {
+  const list = filtered().slice(0, ui.limit).map((i) => i.id);
+  if (shift && ui.lastChecked != null && list.includes(ui.lastChecked)) {
+    const [a, b] = [list.indexOf(ui.lastChecked), list.indexOf(id)].sort((x, y) => x - y);
+    list.slice(a, b + 1).forEach((x) => (on ? ui.checked.add(x) : ui.checked.delete(x)));
+  } else if (on) ui.checked.add(id); else ui.checked.delete(id);
+  ui.lastChecked = id;
+  update();
+}
+
+function paintBulk() {
+  const el = root.querySelector('[data-bulk]');
+  const n = ui.checked.size;
+  el.hidden = !n;
+  if (!n) { el.innerHTML = ''; return; }
+  const themes = [...state.config.themes].sort((a, b) => a.name.localeCompare(b.name));
+  el.innerHTML = `
+    <strong>${n} selected</strong>
+    <label class="visually-hidden" for="bulk-theme">Move selected to theme</label>
+    <select class="select select-inline" id="bulk-theme" data-bulk-theme>
+      <option value="">Move to theme…</option>
+      ${themes.map((x) => `<option value="${esc(x.id)}">${esc(x.name)}</option>`).join('')}
+      <option value="__new">New theme…</option>
+      <option value="__none">Remove from theme</option>
+    </select>
+    <label class="visually-hidden" for="bulk-cat">Change category of selected</label>
+    <select class="select select-inline" id="bulk-cat" data-bulk-cat>
+      <option value="">Change category…</option>
+      ${state.categories.map((c) => `<option>${esc(c)}</option>`).join('')}
+      <option value="__new">New category…</option>
+    </select>
+    <button type="button" class="btn btn-sm btn-danger-outline" data-bulk-act="delete">${icon('trash', 'icon-sm')}Delete</button>
+    <button type="button" class="link-btn" data-bulk-act="clear">Clear selection</button>`;
+}
+
+function askText(title, label, initial, onOk) {
+  openDialog({
+    title,
+    body: `<div class="field"><label class="field-label" for="ask-text">${esc(label)}</label><input class="input" id="ask-text" value="${esc(initial)}" autocomplete="off"></div>`,
+    foot: '<div class="right"><button type="button" class="btn" data-close>Cancel</button><button type="button" class="btn btn-primary" data-ok>Save</button></div>',
+    onMount: (d) => {
+      const inp = d.querySelector('#ask-text');
+      inp.focus(); inp.select();
+      const go = () => { const v = inp.value.trim(); if (!v) return; d.close(); onOk(v); };
+      d.querySelector('[data-ok]').addEventListener('click', go);
+      inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); go(); } });
+    },
+  });
+}
+
+async function bulkTheme(value) {
+  const ids = [...ui.checked];
+  const snap = themeSnapshot();
+  const undo = { label: 'Undo', run: () => restoreThemes(snap).then((ok) => ok && toast('Undone')) };
+  if (value === '__none') {
+    if (await removeFromTheme(ids)) toast(`Removed ${pluralize(ids.length, 'question')} from their themes`, { action: undo });
+  } else if (value === '__new') {
+    askText('New theme', 'Theme name', '', async (name) => {
+      if (await addToTheme(ids, uid('theme'), { name })) toast(`Moved ${pluralize(ids.length, 'question')} to “${name}”`, { action: undo });
+    });
+  } else {
+    const th = themeById(value);
+    if (await addToTheme(ids, value)) toast(`Moved ${pluralize(ids.length, 'question')} to “${th?.name}”`, { action: undo });
+  }
+}
+
+async function bulkCategory(value) {
+  const ids = [...ui.checked];
+  const apply = async (cat) => {
+    const snap = fieldSnapshot(ids, ['topic']);
+    if (await setCategory(ids, cat)) toast(`Moved ${pluralize(ids.length, 'question')} to ${cat}`, { action: { label: 'Undo', run: () => restoreFields(snap).then((ok) => ok && toast('Undone')) } });
+  };
+  if (value === '__new') askText('New category', 'Category name', '', apply);
+  else await apply(value);
+}
+
+async function bulkAction(act) {
+  if (act === 'clear') { ui.checked.clear(); update(); return; }
+  if (act === 'delete') {
+    const ids = [...ui.checked];
+    const ok = await confirmDialog({
+      title: `Delete ${pluralize(ids.length, 'question')}?`,
+      message: `They’ll be removed from the Library, themes and the Overview for everyone. You can undo this right after.`,
+      confirmLabel: `Delete ${pluralize(ids.length, 'question')}`,
+      danger: true,
+    });
+    if (!ok) return;
+    const copies = await deleteQuestions(ids);
+    if (copies) {
+      ui.checked.clear();
+      if (ids.includes(ui.sel)) ui.sel = null;
+      toast(`Deleted ${pluralize(copies.length, 'question')}`, { action: { label: 'Undo', run: () => restoreQuestions(copies).then((r) => r && toast('Restored')) } });
+    }
+  }
+}
+
 async function onClick(e) {
   const t = e.target;
+  const ck = t.closest('[data-check]');
+  if (ck) { toggleCheck(Number(ck.dataset.check), ck.checked, e.shiftKey); return; }
+  if (t.closest('.row-check')) return;
+  const sa = t.closest('[data-select-all]');
+  if (sa) {
+    const list = filtered();
+    const allOn = list.length && list.every((i) => ui.checked.has(i.id));
+    if (allOn) list.forEach((i) => ui.checked.delete(i.id)); else list.forEach((i) => ui.checked.add(i.id));
+    update();
+    return;
+  }
+  const den = t.closest('[data-density]');
+  if (den) {
+    ui.density = den.dataset.density;
+    try { localStorage.setItem('qa-density', ui.density); } catch { /* per-browser preference only */ }
+    update();
+    return;
+  }
+  const bulk = t.closest('[data-bulk-act]');
+  if (bulk) { await bulkAction(bulk.dataset.bulkAct); return; }
   const row = t.closest('[data-id]');
   if (row && root.contains(row)) { select(Number(row.dataset.id)); return; }
   const chip = t.closest('[data-cat]');

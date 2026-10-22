@@ -253,6 +253,48 @@ export function deleteQuestion(id) {
   });
 }
 
+/** Delete several questions at once. Returns copies for undo. */
+export function deleteQuestions(ids) {
+  const set = new Set(ids);
+  const copies = state.items.filter((x) => set.has(x.id)).map((x) => structuredClone(x));
+  return mutate((d) => {
+    d.items = d.items.filter((x) => !set.has(x.id));
+    d.items.forEach((x) => {
+      if (set.has(x.variantOf)) delete x.variantOf;
+      if (Array.isArray(x.related)) x.related = x.related.filter((r) => !set.has(r));
+    });
+  }).then((ok) => ok && copies);
+}
+
+export function restoreQuestions(items) {
+  return mutate((d) => {
+    for (const it of items) if (!d.items.some((x) => x.id === it.id)) d.items.push(structuredClone(it));
+  });
+}
+
+/** Snapshot of chosen fields on some questions, for undoing bulk edits. */
+export function fieldSnapshot(ids, fields) {
+  const set = new Set(ids);
+  return state.items.filter((x) => set.has(x.id)).map((x) => ({ id: x.id, ...Object.fromEntries(fields.map((f) => [f, x[f] ?? null])) }));
+}
+export function restoreFields(snap) {
+  return mutate((d) => {
+    for (const s of snap) {
+      const x = d.items.find((i) => i.id === s.id);
+      if (!x) continue;
+      for (const [k, v] of Object.entries(s)) { if (k === 'id') continue; if (v == null) delete x[k]; else x[k] = v; }
+    }
+  });
+}
+
+export function setCategory(ids, topic) {
+  const set = new Set(ids);
+  return mutate((d) => {
+    d.items.forEach((x) => { if (set.has(x.id)) x.topic = topic; });
+    if (!d.categories.includes(topic)) d.categories.push(topic);
+  });
+}
+
 export function restoreQuestion(item) {
   return mutate((d) => {
     if (!d.items.some((x) => x.id === item.id)) d.items.push(structuredClone(item));

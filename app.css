@@ -793,3 +793,36 @@ a.heat-cell:hover { outline: 2px solid var(--ink); outline-offset: -2px; }
 .swatch[aria-checked="true"] { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--tc); }
 .swatch:hover { transform: scale(1.08); }
 @media (prefers-reduced-motion: reduce) { .swatch:hover { transform: none; } }
+
+/* Library rows: tickbox + clickable body, comfortable or compact */
+.row { display: flex; align-items: stretch; gap: 0; padding: 0; }
+.row:hover { background: var(--surface-2); }
+.row.checked { background: var(--accent-row); }
+.row-check { display: flex; align-items: flex-start; padding: 15px 2px 0 16px; cursor: pointer; flex: none; }
+.row-check input, .select-all input { width: 18px; height: 18px; accent-color: var(--accent); margin: 0; cursor: pointer; }
+.row-main { flex: 1; min-width: 0; display: flex; gap: 14px; text-align: left; padding: 14px 16px 14px 12px; border: 0; background: transparent; color: inherit; }
+.row-main:focus-visible { outline-offset: -2px; }
+.list.compact .row-check { align-items: center; padding-top: 0; }
+.list.compact .row-main { align-items: center; gap: 10px; padding: 8px 14px 8px 12px; min-height: 44px; }
+.list.compact .row-id { padding-top: 0; width: 34px; }
+.row-q-compact { flex: 1; min-width: 0; font-size: 14px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row-tags { display: flex; gap: 6px; align-items: center; flex: 0 1 auto; max-width: 52%; overflow: hidden; }
+.row-tags > * { flex: none; }
+.row-tags .theme-tag { flex: 0 1 auto; min-width: 0; }
+@media (max-width: 700px) {
+  .list.compact .row-main { flex-wrap: wrap; row-gap: 4px; }
+  .row-q-compact { flex-basis: calc(100% - 44px); }
+  .row-tags { max-width: 100%; padding-left: 44px; flex-wrap: wrap; }
+}
+.results-head { gap: 10px; }
+.results-head .grow { flex: 1; }
+.select-all { display: flex; align-items: center; padding-left: 14px; }
+.density .tab { height: 28px; padding: 0 10px; font-size: 12px; }
+.tabs.density { padding: 3px; }
+.bulk-bar {
+  position: sticky; top: 8px; z-index: 6; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px;
+  padding: 10px 14px; border-radius: var(--radius); background: var(--surface); border: 1px solid var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft), var(--shadow); font-size: 13px;
+}
+.bulk-bar strong { margin-right: 4px; }
+.bulk-bar .select-inline { max-width: 220px; }
