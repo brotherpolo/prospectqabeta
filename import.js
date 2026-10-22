@@ -1,15 +1,26 @@
 // Import from Excel or CSV: column matching, exact and near-duplicate detection, and undo.
 
-import { state, getIndex, getItem, importRecords, undoImport } from './store.js';
+import { state, getIndex, getItem, importRecords, undoImport, matchText, composeAsker, setAccounts, companyOf } from './store.js';
+import { suggestVerdict } from './model.js';
 import { openDialog, toast, toastError, confirmDialog } from './ui.js';
 import { esc, icon, loadXLSX, pluralize, relTime } from './utils.js';
+
+/** Accept 2026-10-14, 10/14/2026, Oct 14 2026 and similar; return YYYY-MM-DD or ''. */
+export function toISODate(v) {
+  const t = String(v ?? '').trim();
+  if (!t) return '';
+  if (/^\d{4}-\d{2}-\d{2}/.test(t)) return t.slice(0, 10);
+  const d = new Date(t);
+  return Number.isNaN(d.getTime()) ? '' : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
 
 const FIELDS = [
   ['', 'Don’t import'],
   ['question', 'Question'],
   ['answer', 'Answer'],
-  ['askedBy', 'Asked by'],
-  ['company', 'Company'],
+  ['askedBy', 'Contact'],
+  ['company', 'Account'],
+  ['askedAt', 'Date asked'],
   ['answeredBy', 'Answered by'],
   ['topic', 'Category'],
 ];
@@ -21,6 +32,7 @@ const GUESS = [
   ['company', /^(company|account)$/i, /company|account|organi[sz]ation/i],
   ['answeredBy', /^(answered ?by|answeredby|rep|se)$/i, /answered|rep\b|owner|responder|engineer/i],
   ['topic', /^(category|topic)$/i, /categor|topic|theme/i],
+  ['askedAt', /^(date|date asked|asked on|call date)$/i, /date|when/i],
 ];
 
 function guessMapping(headers) {
@@ -92,14 +104,14 @@ export function openImportDialog() {
       <label class="radio-line"><input type="checkbox" id="suggest" ${s.suggest ? 'checked' : ''}>Suggest a category from similar questions when the file has none</label>`;
   }
 
-  function stage() {
+  async function stage() {
     const col = (f) => s.map.indexOf(f);
     const ci = Object.fromEntries(FIELDS.map(([f]) => [f, col(f)]));
     const idx = getIndex();
+    const closeAt = idx.mode === 'meaning' ? Math.max(state.config.semanticThreshold + 20, 70) : Math.max(state.config.matchThreshold, 50);
     const norm = (q) => q.toLowerCase().replace(/[“”"]/g, '"').replace(/[‘’']/g, "'").replace(/\s+/g, ' ').trim();
     const existing = new Set(state.items.map((i) => norm(i.question)));
     const seen = new Set();
-    const th = Math.max(state.config.matchThreshold, 50);
     const val = (r, f) => (ci[f] >= 0 ? String(r[ci[f]] ?? '').trim() : '');
 
     s.staged = [];
@@ -111,15 +123,19 @@ export function openImportDialog() {
       const rec = {
         question,
         answer: val(r, 'answer') || 'No answer provided',
-        askedBy: (person && company ? `${person} (${company})` : person || company) || 'Unknown Prospect',
+        askedBy: composeAsker(person, company),
+        contact: person, company,
+        askedAt: toISODate(val(r, 'askedAt')),
         answeredBy: val(r, 'answeredBy') || 'Unassigned',
         topic: val(r, 'topic'),
       };
+      const v = suggestVerdict(rec.answer, rec.question);
+      if (v) rec.verdict = v;
       const k = norm(question);
-      const match = state.items.length ? idx.bestMatch(question) : null;
-      if (!rec.topic) rec.topic = s.suggest && match && match.score >= state.config.matchThreshold ? match.item.topic : 'General Operations';
+      const match = state.items.length ? await matchText(`${question} ${rec.answer}`) : null;
+      if (!rec.topic) rec.topic = s.suggest && match && match.score >= idx.threshold ? match.item.topic : 'General Operations';
       if (existing.has(k) || seen.has(k)) rec.status = 'duplicate';
-      else if (match && match.score >= th) { rec.status = 'close'; rec.match = match; rec.decision = 'variant'; }
+      else if (match && match.score >= closeAt) { rec.status = 'close'; rec.match = match; rec.decision = 'variant'; }
       else rec.status = 'new';
       seen.add(k);
       s.staged.push(rec);
@@ -169,13 +185,14 @@ export function openImportDialog() {
   async function readFile(file) {
     try {
       const XLSX = await loadXLSX();
+      if (/\.json$/i.test(file.name)) { toastError('To restore a backup file, use “Restore from backup” on the Calls page.'); return; }
       const buf = await file.arrayBuffer();
       // CSVs are decoded as UTF-8 explicitly; otherwise curly quotes and accents come through garbled.
       const wb = /\.csv$/i.test(file.name)
         ? XLSX.read(new TextDecoder('utf-8').decode(buf).replace(/^\uFEFF/, ''), { type: 'string' })
         : XLSX.read(new Uint8Array(buf), { type: 'array' });
       const ws = wb.Sheets[wb.SheetNames[0]];
-      const all = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', blankrows: false });
+      const all = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', blankrows: false, raw: false, dateNF: 'yyyy-mm-dd' });
       if (all.length < 2) { toastError('That file has no data rows under the header row.'); return; }
       s.fileName = file.name;
       s.headers = all[0].map((h) => String(h ?? '').trim());
@@ -220,9 +237,11 @@ export function openImportDialog() {
 
   function wireFoot() {
     d.querySelector('[data-back]')?.addEventListener('click', () => { s.step -= 1; render(); });
-    d.querySelector('[data-next]')?.addEventListener('click', () => {
+    d.querySelector('[data-next]')?.addEventListener('click', async (e) => {
       if (!s.map.includes('question')) { toastError('Pick which column holds the questions.'); return; }
-      stage();
+      e.target.disabled = true;
+      e.target.textContent = 'Checking for similar questions…';
+      await stage();
       s.step = 3;
       render();
     });
@@ -230,10 +249,14 @@ export function openImportDialog() {
       const rows = s.staged
         .filter((r) => r.status === 'new' || (r.status === 'close' && r.decision !== 'skip'))
         .map((r) => {
-          const out = { question: r.question, answer: r.answer, askedBy: r.askedBy, answeredBy: r.answeredBy, topic: r.topic };
+          const out = {
+            question: r.question, answer: r.answer, askedBy: r.askedBy, answeredBy: r.answeredBy, topic: r.topic,
+            contact: r.contact, company: r.company, askedAt: r.askedAt, verdict: r.verdict,
+          };
           if (r.status === 'close' && r.decision === 'variant') {
             const target = getItem(r.match.item.id);
-            out.variantOf = target?.variantOf || r.match.item.id;
+            if (target?.themeId) out.themeId = target.themeId;
+            else out.variantOf = target?.variantOf || r.match.item.id;
           }
           return out;
         });
@@ -246,4 +269,64 @@ export function openImportDialog() {
   }
 
   render();
+}
+
+
+// ---------- Salesforce report: account stages ----------
+export function openSalesforceImport() {
+  openDialog({
+    title: 'Import a Salesforce report',
+    sub: 'Export a report of accounts or opportunities as Excel or CSV. Only account names and stages are used.',
+    body: `<label class="dropzone" id="sf-drop">${icon('upload')}<strong>Choose the report file</strong>
+      <span>Needs an account name column and a stage column. A won/lost column is optional.</span>
+      <input type="file" id="sf-file" accept=".xlsx,.xls,.csv" class="visually-hidden"></label>
+      <div id="sf-preview"></div>`,
+    foot: '<div class="right"><button type="button" class="btn" data-close>Cancel</button><button type="button" class="btn btn-primary" data-save disabled>Save stages</button></div>',
+    onMount: (d) => {
+      let parsed = null;
+      const show = (html) => { d.querySelector('#sf-preview').innerHTML = html; };
+      d.querySelector('#sf-file').addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        try {
+          const XLSX = await loadXLSX();
+          const buf = await file.arrayBuffer();
+          const wb = /\.csv$/i.test(file.name)
+            ? XLSX.read(new TextDecoder('utf-8').decode(buf).replace(/^\uFEFF/, ''), { type: 'string' })
+            : XLSX.read(new Uint8Array(buf), { type: 'array' });
+          const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '', raw: false });
+          if (!rows.length) { toastError('That report has no rows.'); return; }
+          const cols = Object.keys(rows[0]);
+          const acctCol = cols.find((c) => /^account( name)?$/i.test(c.trim())) || cols.find((c) => /account|company/i.test(c));
+          const stageCol = cols.find((c) => /stage/i.test(c));
+          const wonCol = cols.find((c) => /\bwon\b|closed won|outcome/i.test(c));
+          if (!acctCol || !stageCol) { show(`<div class="form-error">Couldn’t find ${!acctCol ? 'an account name' : 'a stage'} column. Columns found: ${cols.map(esc).join(', ')}.</div>`); return; }
+          const accounts = {};
+          for (const r of rows) {
+            const name = String(r[acctCol]).trim();
+            if (!name) continue;
+            accounts[name] = { stage: String(r[stageCol]).trim(), ...(wonCol ? { outcome: String(r[wonCol]).trim() } : {}) };
+          }
+          const ours = [...new Set(state.items.map(companyOf).filter(Boolean))];
+          const lower = new Map(Object.keys(accounts).map((k) => [k.toLowerCase(), k]));
+          const matched = ours.filter((o) => lower.has(o.toLowerCase()));
+          const unmatched = ours.filter((o) => !lower.has(o.toLowerCase()));
+          // Store under the app's spelling, so stages line up with questions.
+          for (const o of matched) { const k = lower.get(o.toLowerCase()); if (k !== o) { accounts[o] = accounts[k]; } }
+          parsed = { accounts, file: file.name };
+          show(`<div class="quote">
+            <p>Using <strong>${esc(acctCol)}</strong> for account and <strong>${esc(stageCol)}</strong> for stage${wonCol ? `, <strong>${esc(wonCol)}</strong> for outcome` : ''}.</p>
+            <p>${pluralize(Object.keys(accounts).length, 'account')} in the report. ${matched.length} of your ${pluralize(ours.length, 'account')} matched${matched.length ? `: ${matched.map(esc).join(', ')}` : ''}.</p>
+            ${unmatched.length ? `<p class="warn-text">Not found in the report: ${unmatched.map(esc).join(', ')}. Check the spelling of these account names.</p>` : ''}
+          </div>`);
+          d.querySelector('[data-save]').disabled = false;
+        } catch (err) { toastError(`Couldn't read that report. (${err.message})`); }
+      });
+      d.querySelector('[data-save]').addEventListener('click', async () => {
+        if (!parsed) return;
+        d.close();
+        if (await setAccounts(parsed.accounts, { file: parsed.file, at: new Date().toISOString() })) toast('Stages imported');
+      });
+    },
+  });
 }

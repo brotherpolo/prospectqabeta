@@ -5,10 +5,10 @@ import {
   state, getIndex, getItem, openGroups, dismissGroup, linkQuestions, saveStandard, reopenGroup,
 } from './store.js';
 import { toast } from './ui.js';
-import { esc, icon, wordCount, canonicalRep, relTime, pluralize } from './utils.js';
+import { esc, icon, wordCount, canonicalRep, relTime, pluralize, uid } from './utils.js';
 import { displayTerm } from './similarity.js';
 
-const ui = { tab: 'suggested', key: null, pick: [], std: {}, drafts: {} };
+const ui = { tab: 'suggested', key: null, pick: [], std: {}, drafts: {}, names: {} };
 let root = null;
 
 export function mount(el, params) {
@@ -23,6 +23,7 @@ export function mount(el, params) {
   el.onchange = onChange;
   el.oninput = (e) => {
     if (e.target.matches('[data-draft]')) ui.drafts[e.target.dataset.draft] = e.target.value;
+    if (e.target.matches('[data-name]')) ui.names[e.target.dataset.name] = e.target.value;
   };
   update();
 }
@@ -73,7 +74,7 @@ function suggestedTab(groups) {
             <span class="queue-title">${esc(x.title)}</span>
             ${x.topics.length > 1 ? '<span class="queue-note">Filed under different categories</span>' : ''}
           </button>`).join('')}
-        <p class="queue-foot">Matches at ${state.config.matchThreshold}% or higher with at least ${pluralize(state.config.minShared, 'shared term')}. <a href="#/rules">Change matching rules</a></p>
+        <p class="queue-foot">${getIndex().mode === 'meaning' ? `Matched by meaning at ${state.config.semanticThreshold}% or higher.` : `Matched by shared words at ${state.config.matchThreshold}% or higher (smart matching isn’t active).`} <a href="#/rules">Change matching rules</a></p>
       </section>
       ${compareBlock(g.ids, g)}
     </div>`;
@@ -139,22 +140,28 @@ function compareBlock(ids, group) {
   const stdId = ui.std[k] ?? existingStd?.id ?? longest.id;
   const stdItem = items.find((i) => i.id === stdId) || longest;
   const draft = ui.drafts[k] ?? stdItem.answer;
-  const strength = best.score >= 60 ? 'strong match' : best.score >= state.config.matchThreshold ? 'likely related' : 'weak match';
+  const th = idx.threshold;
+  const strength = best.score >= th + 15 ? 'strong match' : best.score >= th ? 'likely related' : 'weak match';
+  const meaning = best.mode === 'meaning';
+  const existingTheme = items[0].themeId && items.every((i) => i.themeId === items[0].themeId) ? state.config.themes.find((t) => t.id === items[0].themeId) : null;
+  const themeName = ui.names[k] ?? (existingTheme?.name || (group ? group.title : [...items].sort((a, b) => a.question.length - b.question.length)[0].question).replace(/\?$/, ''));
 
   return `
     <section class="compare" aria-label="Comparison">
       <div class="card score-card">
-        <div class="score-big"><strong>${best.score}%</strong><span>${strength} (#${best.a.id} and #${best.b.id})</span></div>
-        <div class="terms-wrap"><span>Shared terms</span>
+        <div class="score-big"><strong>${best.score}%</strong><span>${meaning ? 'meaning match' : 'word match'}, ${strength} (#${best.a.id} and #${best.b.id})</span></div>
+        <div class="terms-wrap"><span>Shared words</span>
           <div class="terms">${best.shared.length ? best.shared.map((t) => `<span class="term">${esc(displayTerm(t, `${best.a.question} ${best.b.question}`, state.config.synonyms))}</span>`).join('') : '<span class="muted">None</span>'}</div>
         </div>
         <details class="how">
           <summary>How this is scored</summary>
           <table class="how-table">
-            <thead><tr><th>Pair</th><th>Overlap</th><th>Jaccard</th><th>Score</th></tr></thead>
-            <tbody>${pairs.map((p) => `<tr><td>#${p.a.id} · #${p.b.id}</td><td>${p.overlap}%</td><td>${p.jaccard}%</td><td>${p.score}%</td></tr>`).join('')}</tbody>
+            <thead><tr><th>Pair</th>${meaning ? '<th>Meaning</th>' : ''}<th>Word score</th><th>Overlap</th><th>Jaccard</th></tr></thead>
+            <tbody>${pairs.map((p) => `<tr><td>#${p.a.id} · #${p.b.id}</td>${meaning ? `<td>${p.score}%</td>` : ''}<td>${p.wordScore}%</td><td>${p.overlap}%</td><td>${p.jaccard}%</td></tr>`).join('')}</tbody>
           </table>
-          <p class="field-hint" style="margin-top:8px">Score = overlap × ${state.config.overlapRatio}% + Jaccard × ${state.config.jaccardRatio}%. Pairs with fewer than ${state.config.minShared} shared terms score 0.</p>
+          <p class="field-hint" style="margin-top:8px">${meaning
+            ? `The meaning score comes from an AI model that reads each question and answer (account and rep names removed). ${th}% or higher counts as related.`
+            : `Word score = overlap × ${state.config.overlapRatio}% + Jaccard × ${state.config.jaccardRatio}%. Pairs with fewer than ${state.config.minShared} shared words score 0.`}</p>
         </details>
       </div>
 
@@ -165,11 +172,11 @@ function compareBlock(ids, group) {
           const isStd = it.id === stdItem.id;
           return `<article class="cmp-card" data-std="${isStd}">
             <div class="cmp-top"><a class="mono" href="#/library/${it.id}">#${it.id}</a>
-              ${isStd ? '<span class="badge badge-accent">Standard answer</span>' : `<span>${sc}% to #${vs.id}</span>`}</div>
+              ${isStd ? '<span class="badge badge-ok">Approved answer</span>' : `<span>${sc}% to #${vs.id}</span>`}</div>
             <h3 class="cmp-q">${esc(it.question)}</h3>
             <p class="cmp-a">${esc(it.answer)}</p>
             <div class="cmp-foot"><span>${esc(it.askedBy)} → ${esc(it.answeredBy)}</span><span>${pluralize(wordCount(it.answer), 'word')} · ${esc(it.topic)}</span></div>
-            <label class="radio-line"><input type="radio" name="std-${esc(k)}" value="${it.id}" data-std-key="${esc(k)}" ${isStd ? 'checked' : ''}>Use as standard</label>
+            <label class="radio-line"><input type="radio" name="std-${esc(k)}" value="${it.id}" data-std-key="${esc(k)}" ${isStd ? 'checked' : ''}>Use this answer</label>
           </article>`;
         }).join('')}
       </div>
@@ -180,16 +187,18 @@ function compareBlock(ids, group) {
           ${coachingNotes(items).map((n) => `<div class="note" data-tone="${n.tone}"><span>${n.html}</span></div>`).join('')}
         </div>
         <div class="card" style="display:flex;flex-direction:column;gap:10px">
-          <div class="section-head"><label class="section-title" for="std-draft">Standard answer</label><span class="field-hint">Edit before saving</span></div>
+          <div class="field"><label class="field-label" for="theme-name">Theme name</label>
+            <input class="input" id="theme-name" data-name="${esc(k)}" value="${esc(themeName)}"></div>
+          <div class="section-head"><label class="section-title" for="std-draft">Approved answer</label><span class="field-hint">Edit before saving</span></div>
           <textarea class="textarea" id="std-draft" data-draft="${esc(k)}" rows="4">${esc(draft)}</textarea>
-          <span class="field-hint">Saved to #${stdItem.id}. The others become its variants and point to it in the Library.</span>
+          <span class="field-hint">Saved to #${stdItem.id}. All ${items.length} questions join this theme.</span>
         </div>
       </div>
 
       <div class="actions-bar">
         ${group ? `<button type="button" class="btn btn-lg" data-act="dismiss">Not related, dismiss</button>` : ''}
         <button type="button" class="btn btn-lg" data-act="link" data-ids="${ids.join(',')}">Keep separate, link them</button>
-        <button type="button" class="btn btn-primary btn-lg" data-act="standard" data-ids="${ids.join(',')}" data-std="${stdItem.id}" data-k="${esc(k)}">Save standard answer</button>
+        <button type="button" class="btn btn-primary btn-lg" data-act="standard" data-ids="${ids.join(',')}" data-std="${stdItem.id}" data-k="${esc(k)}" data-theme="${esc(existingTheme?.id || '')}">Approve answer and save theme</button>
       </div>
     </section>`;
 }
@@ -284,9 +293,11 @@ async function onClick(e) {
   if (act === 'standard') {
     const k = actBtn.dataset.k;
     const text = root.querySelector('#std-draft')?.value ?? '';
-    if (await saveStandard(ids, Number(actBtn.dataset.std), text, key)) {
+    const name = (root.querySelector('#theme-name')?.value || '').trim() || 'Untitled theme';
+    if (await saveStandard(ids, Number(actBtn.dataset.std), text, key, name, actBtn.dataset.theme || uid('theme'))) {
       delete ui.drafts[k];
-      toast(`Standard answer saved to #${actBtn.dataset.std}`);
+      delete ui.names[k];
+      toast(`Saved “${name}” with #${actBtn.dataset.std} as the approved answer`);
     }
   }
 }

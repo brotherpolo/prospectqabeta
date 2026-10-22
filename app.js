@@ -6,15 +6,22 @@ import { toast, toastError, openDialog } from './ui.js';
 import { esc, icon, isTyping } from './utils.js';
 import { openQuestionDialog, openCategoriesDialog, openAccountDialog, openMoreDialog } from './dialogs.js';
 import { openImportDialog } from './import.js';
+import { openLogCall } from './logcall.js';
 import * as library from './library.js';
+import { semanticStatus } from './store.js';
 
-// Library loads with the page; the other views load the first time they're opened.
+// Overview and Library load with the page; the other views load the first time they're opened.
 const VIEWS = {
+  overview: () => import('./overview.js'),
   library: () => Promise.resolve(library),
   review: () => import('./review.js'),
+  reps: () => import('./reps.js'),
   insights: () => import('./insights.js'),
+  calls: () => import('./calls.js'),
+  complete: () => import('./complete.js'),
   rules: () => import('./rules.js'),
 };
+const TITLES = { overview: 'Overview', library: 'Library', review: 'Review', reps: 'Reps', insights: 'Insights', calls: 'Calls', complete: 'Complete records', rules: 'Matching rules' };
 
 const $ = (s) => document.querySelector(s);
 const viewEl = $('#view');
@@ -27,7 +34,7 @@ function parseHash() {
   const [name, id] = path.split('/');
   const params = Object.fromEntries(new URLSearchParams(query));
   if (id) params.id = id;
-  return { name: VIEWS[name] ? name : 'library', params };
+  return { name: VIEWS[name] ? name : 'overview', params };
 }
 
 async function route() {
@@ -43,7 +50,7 @@ async function route() {
     if (a.dataset.route === name) a.setAttribute('aria-current', 'page');
     else a.removeAttribute('aria-current');
   });
-  document.title = `${name[0].toUpperCase()}${name.slice(1)} · Prospect Q&A Hub`;
+  document.title = `${TITLES[name]} · Prospect Q&A Hub`;
 }
 
 window.addEventListener('hashchange', () => {
@@ -61,6 +68,15 @@ function paintShell() {
   const n = state.loaded ? openGroups().length : 0;
   document.querySelectorAll('[data-count="review"]').forEach((el) => { el.textContent = n; el.hidden = !n; });
   document.querySelectorAll('[data-count="review-tab"]').forEach((el) => { el.textContent = n ? ` · ${n}` : ''; });
+  const incomplete = state.loaded ? state.items.filter((i) => i.kind !== 'feedback' && (!i.askedAt || !(i.company || /\(.+\)/.test(i.askedBy)))).length : 0;
+  document.querySelectorAll('[data-count="complete"]').forEach((el) => { el.textContent = incomplete; el.hidden = !incomplete; });
+  const sem = semanticStatus();
+  const on = state.config.semanticMatching !== false;
+  document.querySelectorAll('[data-sem-status]').forEach((el) => {
+    el.dataset.state = !on ? 'off' : sem.state;
+    el.textContent = !on ? 'Smart matching off' : sem.state === 'ready' ? 'Smart matching on'
+      : sem.state === 'error' ? 'Word matching only' : `Loading smart matching${sem.progress ? ` ${sem.progress}%` : '…'}`;
+  });
 }
 
 let lastUid = undefined;
@@ -172,6 +188,7 @@ const actions = {
   palette: openPalette,
   more: () => openMoreDialog(actions),
   new: () => openQuestionDialog(null, { onSaved: (id) => { location.hash = `#/library/${id}`; } }),
+  log: () => openLogCall(),
 };
 
 $('#app').addEventListener('click', (e) => {
@@ -188,6 +205,7 @@ document.addEventListener('keydown', (e) => {
     if (current.name !== 'library') { location.hash = '#/library'; setTimeout(library.focusSearch, 50); }
     else library.focusSearch();
   } else if (e.key === 'n') { e.preventDefault(); actions.new(); }
+  else if (e.key === 'l') { e.preventDefault(); actions.log(); }
   else if (e.key === 'e' && current.name === 'library') { e.preventDefault(); library.editSelected(); }
   else if (e.key === '?') { e.preventDefault(); openShortcuts(); }
 });
@@ -197,7 +215,7 @@ function openShortcuts() {
   openDialog({
     title: 'Keyboard shortcuts',
     body: `<table class="table"><tbody>
-      ${[[`${k} K`, 'Quick find'], ['/', 'Search the library'], ['n', 'New question'], ['e', 'Edit selected question'], [`${k} Enter`, 'Save in the question editor'], ['Esc', 'Close a dialog'], ['?', 'Show this list']]
+      ${[[`${k} K`, 'Quick find'], ['/', 'Search the library'], ['l', 'Log a call'], ['n', 'New single question'], ['e', 'Edit selected question'], [`${k} Enter`, 'Save in the question editor'], ['Esc', 'Close a dialog'], ['?', 'Show this list']]
         .map(([a, b]) => `<tr><td><span class="kbd">${a}</span></td><td>${b}</td></tr>`).join('')}
     </tbody></table>`,
   });
@@ -206,12 +224,10 @@ function openShortcuts() {
 // ---------- Quick find (⌘K) ----------
 function openPalette() {
   const commands = [
-    { label: 'New question', icon: 'plus', run: actions.new },
+    { label: 'Log a call', icon: 'plus', run: actions.log },
+    { label: 'New single question', icon: 'plus', run: actions.new },
     { label: 'Import questions', icon: 'upload', run: actions.import },
-    { label: 'Go to Library', icon: 'library', run: () => { location.hash = '#/library'; } },
-    { label: 'Go to Review', icon: 'review', run: () => { location.hash = '#/review'; } },
-    { label: 'Go to Insights', icon: 'chart', run: () => { location.hash = '#/insights'; } },
-    { label: 'Go to Matching rules', icon: 'sliders', run: () => { location.hash = '#/rules'; } },
+    ...Object.entries(TITLES).map(([k, t]) => ({ label: `Go to ${t}`, icon: { overview: 'chart', library: 'library', review: 'review', reps: 'user', insights: 'chart', calls: 'calendar', complete: 'flag', rules: 'sliders' }[k], run: () => { location.hash = `#/${k}`; } })),
     { label: 'Manage categories', icon: 'tag', run: actions.categories },
     { label: 'Keyboard shortcuts', icon: 'more', run: openShortcuts },
   ];

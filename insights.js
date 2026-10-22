@@ -1,6 +1,7 @@
 // Insights: replaces the Frequency page. Every number links to the matching Library view.
 
 import { state, getIndex, openGroups, normalizeRepNames } from './store.js';
+import { accountOf } from './model.js';
 import { toast, confirmDialog } from './ui.js';
 import { esc, wordCount, isNoAnswer, repNames, canonicalRep, splitAsker, pluralize } from './utils.js';
 
@@ -25,7 +26,7 @@ export function update() {
 
   // Counts
   const byCat = count(items, (i) => [i.topic]);
-  const byAsker = count(items, (i) => [i.askedBy]);
+  const byAsker = count(items, (i) => [accountOf(i)]);
   const byRep = count(items, (i) => repNames(i.answeredBy).filter((r) => r.toLowerCase() !== 'unassigned'));
   const cats = [...byCat].sort((a, b) => b[1] - a[1]);
   const askers = [...byAsker].sort((a, b) => b[1] - a[1]);
@@ -37,7 +38,7 @@ export function update() {
   const heatAskers = askers.slice(0, 12).map(([a]) => a);
   const heatCats = cats.map(([c]) => c);
   const cell = new Map();
-  items.forEach((i) => { const k = `${i.askedBy}\u0000${i.topic}`; cell.set(k, (cell.get(k) || 0) + 1); });
+  items.forEach((i) => { const k = `${accountOf(i)}\u0000${i.topic}`; cell.set(k, (cell.get(k) || 0) + 1); });
   const max = Math.max(1, ...cell.values());
   const level = (v) => (v === 0 ? 0 : Math.min(4, Math.ceil((v / max) * 4)));
 
@@ -60,7 +61,7 @@ export function update() {
       <div class="kpis">
         <a class="kpi" href="#/library" style="text-decoration:none;color:inherit">
           <span class="kpi-label">Questions</span><span class="kpi-value">${total}</span><span class="kpi-sub">${pluralize(cats.length, 'category', 'categories')}</span></a>
-        <div class="kpi"><span class="kpi-label">Prospects</span><span class="kpi-value">${askers.length}</span>
+        <div class="kpi"><span class="kpi-label">Accounts</span><span class="kpi-value">${askers.length}</span>
           <span class="kpi-sub">${topAsker ? `${esc(topAsker[0])} asked ${topAsker[1]}` : ''}</span></div>
         <a class="kpi" href="${lib({ attention: '1' })}" style="text-decoration:none;color:inherit">
           <span class="kpi-label">Need attention</span><span class="kpi-value warn">${brief + noAnswer}</span>
@@ -88,11 +89,11 @@ export function update() {
           <tbody>${heatAskers.map((a) => `<tr><th scope="row">${esc(a)}</th>${heatCats.map((c) => {
             const v = cell.get(`${a}\u0000${c}`) || 0;
             return `<td>${v
-              ? `<a class="heat-cell heat-${level(v)}" style="display:grid;place-items:center;text-decoration:none" href="${lib({ cat: c, asker: a })}" aria-label="${v} from ${esc(a)} about ${esc(c)}">${v}</a>`
+              ? `<a class="heat-cell heat-${level(v)}" style="display:grid;place-items:center;text-decoration:none" href="${lib({ cat: c, account: a })}" aria-label="${v} from ${esc(a)} about ${esc(c)}">${v}</a>`
               : `<span class="heat-cell heat-0" style="display:grid;place-items:center" aria-label="None">–</span>`}</td>`;
           }).join('')}</tr>`).join('')}</tbody>
         </table></div>
-        ${askers.length > 12 ? `<p class="field-hint">Showing the 12 most active of ${askers.length} prospects.</p>` : ''}
+        ${askers.length > 12 ? `<p class="field-hint">Showing the 12 most active of ${askers.length} accounts.</p>` : ''}
       </section>
 
       <section class="card">
@@ -160,10 +161,11 @@ function healthCards() {
       <p>Add answers so the library can be used on calls.</p><a href="${lib({ attention: '1' })}">Show them</a></div>`);
   }
 
-  const mixed = items.filter((i) => !/\(.+\)/.test(i.askedBy)).length;
-  if (mixed && mixed < items.length) {
-    cards.push(`<div class="health-card"><strong>${pluralize(mixed, 'question')} without a company</strong>
-      <p>These list only a person as the asker. Writing it as “Name (Company)” lets you see questions by account.</p></div>`);
+  const noAcct = items.filter((i) => !i.company && !/\(.+\)/.test(i.askedBy) && i.kind !== 'feedback').length;
+  const noDate = items.filter((i) => !i.askedAt && i.kind !== 'feedback').length;
+  if (noAcct || noDate) {
+    cards.push(`<div class="health-card"><strong>${[noAcct && `${pluralize(noAcct, 'question')} without an account`, noDate && `${pluralize(noDate, 'question')} without a date`].filter(Boolean).join(', ')}</strong>
+      <p>Accounts and dates drive the Overview’s trends and account view.</p><a href="#/complete">Complete records</a></div>`);
   }
 
   if (!cards.length) cards.push('<div class="health-card ok"><strong>Looks good</strong><p>No naming or answer problems found.</p></div>');
