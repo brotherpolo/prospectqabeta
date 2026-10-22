@@ -56,6 +56,15 @@ function filtered() {
     account: (a, b) => accountOf(a).localeCompare(accountOf(b)) || a.id - b.id,
     rep: (a, b) => a.answeredBy.localeCompare(b.answeredBy) || a.id - b.id,
     topic: (a, b) => a.topic.localeCompare(b.topic) || a.id - b.id,
+    idDesc: (a, b) => b.id - a.id,
+    idAsc: (a, b) => a.id - b.id,
+    // Theme A–Z; questions without a theme go last.
+    theme: (a, b) => {
+      const ta = a.themeId ? themeById(a.themeId)?.name : null;
+      const tb = b.themeId ? themeById(b.themeId)?.name : null;
+      if (!ta !== !tb) return ta ? -1 : 1;
+      return (ta || '').localeCompare(tb || '') || a.id - b.id;
+    },
   }[ui.sort] || ((a, b) => b.id - a.id);
   list = list.sort(cmp);
   if (t.length) {
@@ -172,9 +181,9 @@ export function update() {
       <select class="select select-inline" id="f-theme" data-filter="theme">${opt('', 'All themes', ui.theme)}${themes.map((x) => opt(x.id, `${x.confirmed ? '' : 'Suggested: '}${x.name.slice(0, 50)}`, ui.theme)).join('')}</select>
       <label class="visually-hidden" for="f-verdict">Verdict</label>
       <select class="select select-inline" id="f-verdict" data-filter="verdict">${opt('', 'Any verdict', ui.verdict)}${VERDICTS.map((v) => opt(v.id, v.label, ui.verdict)).join('')}${opt('__none', 'No verdict yet', ui.verdict)}</select>
-      <label class="visually-hidden" for="f-sort">Sort</label>
+      <label class="sort-label" for="f-sort">Sort</label>
       <select class="select select-inline" id="f-sort" data-filter="sort">
-        ${opt('newest', 'Newest first', ui.sort)}${opt('oldest', 'Oldest first', ui.sort)}${opt('account', 'Account A–Z', ui.sort)}${opt('rep', 'Rep A–Z', ui.sort)}${opt('topic', 'Category', ui.sort)}
+        ${opt('newest', 'Newest first', ui.sort)}${opt('oldest', 'Oldest first', ui.sort)}${opt('idDesc', 'Number, high to low', ui.sort)}${opt('idAsc', 'Number, low to high', ui.sort)}${opt('topic', 'Category A–Z', ui.sort)}${opt('theme', 'Theme A–Z', ui.sort)}${opt('account', 'Account A–Z', ui.sort)}${opt('rep', 'Rep A–Z', ui.sort)}
       </select>
       <span class="sep" aria-hidden="true"></span>
       <button type="button" class="chip chip-warn" data-toggle="attention" aria-pressed="${ui.attention}" title="Answers under ${state.config.shortWordThreshold} words or missing">${icon('flag', 'icon-sm')}Needs attention</button>
@@ -212,7 +221,7 @@ export function update() {
       const approved = i.standard ? '<span class="badge badge-ok">Approved</span>' : '';
       const body = ui.density === 'compact'
         ? `<span class="row-id">#${i.id}</span>
-           <span class="row-q-compact" title="${esc(i.question)}">${highlight(i.question, t)}</span>
+           <span class="row-q-compact">${highlight(i.question, t)}</span>
            <span class="row-tags">${themeTagHTML(i, { short: true })}<span class="tag">${esc(i.topic)}</span>${verdict}${approved}</span>`
         : `<span class="row-id">#${i.id}</span>
         <span class="row-body">
@@ -425,17 +434,18 @@ function askText(title, label, initial, onOk) {
 
 async function bulkTheme(value) {
   const ids = [...ui.checked];
+  const done = () => { ui.checked.clear(); ui.lastChecked = null; };
   const snap = themeSnapshot();
   const undo = { label: 'Undo', run: () => restoreThemes(snap).then((ok) => ok && toast('Undone')) };
   if (value === '__none') {
-    if (await removeFromTheme(ids)) toast(`Removed ${pluralize(ids.length, 'question')} from their themes`, { action: undo });
+    if (await removeFromTheme(ids)) done(), update(), toast(`Removed ${pluralize(ids.length, 'question')} from their themes`, { action: undo });
   } else if (value === '__new') {
     askText('New theme', 'Theme name', '', async (name) => {
-      if (await addToTheme(ids, uid('theme'), { name })) toast(`Moved ${pluralize(ids.length, 'question')} to “${name}”`, { action: undo });
+      if (await addToTheme(ids, uid('theme'), { name })) done(), update(), toast(`Moved ${pluralize(ids.length, 'question')} to “${name}”`, { action: undo });
     });
   } else {
     const th = themeById(value);
-    if (await addToTheme(ids, value)) toast(`Moved ${pluralize(ids.length, 'question')} to “${th?.name}”`, { action: undo });
+    if (await addToTheme(ids, value)) done(), update(), toast(`Moved ${pluralize(ids.length, 'question')} to “${th?.name}”`, { action: undo });
   }
 }
 
@@ -443,7 +453,7 @@ async function bulkCategory(value) {
   const ids = [...ui.checked];
   const apply = async (cat) => {
     const snap = fieldSnapshot(ids, ['topic']);
-    if (await setCategory(ids, cat)) toast(`Moved ${pluralize(ids.length, 'question')} to ${cat}`, { action: { label: 'Undo', run: () => restoreFields(snap).then((ok) => ok && toast('Undone')) } });
+    if (await setCategory(ids, cat)) ui.checked.clear(), update(), toast(`Moved ${pluralize(ids.length, 'question')} to ${cat}`, { action: { label: 'Undo', run: () => restoreFields(snap).then((ok) => ok && toast('Undone')) } });
   };
   if (value === '__new') askText('New category', 'Category name', '', apply);
   else await apply(value);

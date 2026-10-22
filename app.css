@@ -826,3 +826,25 @@ a.heat-cell:hover { outline: 2px solid var(--ink); outline-offset: -2px; }
 }
 .bulk-bar strong { margin-right: 4px; }
 .bulk-bar .select-inline { max-width: 220px; }
+
+/* Compact rows: show the whole question; the row grows when it wraps. */
+.list.compact .row-main { align-items: flex-start; padding-top: 10px; padding-bottom: 10px; }
+.list.compact .row-check { align-items: flex-start; padding-top: 12px; }
+.list.compact .row-id { padding-top: 2px; }
+.row-q-compact { white-space: normal; overflow: visible; text-overflow: clip; line-height: 1.4; padding-top: 1px; }
+.row-tags { flex: 0 0 auto; max-width: 44%; flex-wrap: wrap; justify-content: flex-end; overflow: visible; row-gap: 4px; }
+.row-tags .theme-tag { max-width: 100%; }
+@media (max-width: 1100px) { .row-tags { max-width: 38%; } }
+@media (max-width: 700px) { .row-tags { max-width: 100%; justify-content: flex-start; } }
+
+/* Compact rows: show the whole question; the row grows instead of cutting it off. */
+.list.compact .row-main { align-items: flex-start; }
+.list.compact .row-check { align-items: flex-start; padding-top: 12px; }
+.list.compact .row-id { padding-top: 2px; }
+.row-q-compact { white-space: normal; overflow: visible; text-overflow: clip; line-height: 1.4; padding-top: 1px; }
+.row-tags { flex: 0 1 auto; max-width: 46%; flex-wrap: wrap; justify-content: flex-end; overflow: visible; row-gap: 4px; padding-top: 1px; }
+.row-tags .theme-tag { max-width: 100%; }
+@media (max-width: 700px) {
+  .row-tags { max-width: 100%; justify-content: flex-start; }
+}
+.sort-label { font-size: 13px; color: var(--muted); margin-left: 4px; }
