@@ -143,6 +143,9 @@ export function update() {
     ...cats.map((c) => `<button type="button" class="chip" data-cat="${esc(c)}" aria-pressed="${ui.cat === c}">${esc(c)}<span class="chip-count">${counts.get(c)}</span></button>`),
   ].join('');
 
+  // A filter left over from before the data changed would silently hide everything.
+  if (ui.rep && !reps.has(ui.rep)) ui.rep = '';
+  if (ui.account && !accounts.has(ui.account)) ui.account = '';
   const filters = root.querySelector('[data-filters]');
   const acctOpts = [...accounts].sort();
   const repOpts = [...reps].sort();

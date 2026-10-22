@@ -22,18 +22,26 @@ export function splitAsker(a) {
   return m ? { person: m[1].trim(), company: m[2].trim() } : { person: String(a || '').trim(), company: '' };
 }
 
-/** "Casey and Caroline" -> ["Casey", "Caroline"] */
+/**
+ * "Casey and Caroline" -> ["Casey", "Caroline"]
+ * "Rosanna Camporeale; Adam Pollack" -> ["Rosanna Camporeale", "Adam Pollack"]
+ * "Mattheu Allen (partial response)" -> ["Mattheu Allen"]: bracketed notes describe the answer, not the rep.
+ * The original text is kept on the record; this only decides who the reps are.
+ */
 export function repNames(r) {
   return String(r || '')
-    .split(/\s*(?:,|&|\/|\band\b)\s*/i)
+    .replace(/\([^)]*\)/g, ' ')
+    .split(/\s*(?:[,;&/]|\band\b)\s*/i)
     .map((s) => s.trim())
     .filter(Boolean);
 }
 
-/** Order-independent form so "Casey and Caroline" and "Caroline and Casey" match. */
+/** Order-independent form so "Casey and Caroline" and "Caroline and Casey" match. Text with notes is left alone. */
 export function canonicalRep(r) {
-  const names = [...new Set(repNames(r))].sort((a, b) => a.localeCompare(b));
-  if (names.length < 2) return String(r || '').trim();
+  const text = String(r || '').trim();
+  if (/\(/.test(text)) return text;
+  const names = [...new Set(repNames(text))].sort((a, b) => a.localeCompare(b));
+  if (names.length < 2) return text;
   if (names.length === 2) return names.join(' and ');
   return `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
 }
