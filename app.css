@@ -848,3 +848,64 @@ a.heat-cell:hover { outline: 2px solid var(--ink); outline-offset: -2px; }
   .row-tags { max-width: 100%; justify-content: flex-start; }
 }
 .sort-label { font-size: 13px; color: var(--muted); margin-left: 4px; }
+
+/* ---------- Phones: fit the screen exactly, never auto-zoom ---------- */
+@media (max-width: 860px), (pointer: coarse) {
+  /* iOS zooms into any field whose text is under 16px; 16px everywhere stops that. */
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select, textarea,
+  .input, .select, .textarea, .select-inline, .input-sm, .palette-input { font-size: 16px; }
+}
+@media (max-width: 860px) {
+  html, body { overflow-x: hidden; }
+  .page, .page > *, .card, .split > *, .rules-layout > *, .grid-2 > *, .two-col > * { min-width: 0; max-width: 100%; }
+  .card { padding: 14px; }
+  .page-head { align-items: flex-start; }
+  .page-actions { width: 100%; }
+  .page-actions .tabs { flex-wrap: wrap; }
+  .rules-layout > *, .grid-2 > *, .two-col > *, .side-col, .themes-list, .theme-editor, .queue, .compare { flex-basis: 100%; }
+  .add-row { flex-wrap: wrap; }
+  .add-row > .input, .add-row > .select { flex: 1 1 140px; max-width: none !important; }
+  .toolbar { min-width: 0; }
+  .bulk-bar { top: 4px; }
+  .bulk-bar .select-inline { flex: 1 1 150px; max-width: none; }
+  .bar-row { grid-template-columns: minmax(0, 1fr) minmax(60px, 40%) 30px; }
+  .meta-grid { grid-template-columns: minmax(0, 1fr); }
+  .kpis, .kpis-5 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .kpi-value { font-size: 24px; }
+  .stat-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .map-grid { grid-template-columns: minmax(0, 1fr); }
+  .map-col { margin-top: 6px; }
+  .palette { grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 6px; }
+  .swatch { width: 100%; height: auto; aspect-ratio: 1; }
+  .theme-detail { padding: 4px 14px 14px; }
+  .q-row-sugg { gap: 10px; }
+  .mini-field { width: 100%; }
+  .mini-field .select-inline { flex: 1; max-width: none; }
+  .fu-box label { flex: 1 1 130px; }
+  .fu-box .input-sm { width: 100%; }
+  .call-details { padding: 14px; }
+  .date-grid, .theme-cards { grid-template-columns: minmax(0, 1fr); }
+  .danger-zone > * { width: 100%; }
+  .actions-bar { justify-content: stretch; }
+  .actions-bar > .btn { flex: 1 1 auto; }
+
+  /* Dialogs become full-screen sheets that fit the visible screen, keyboard included. */
+  dialog.dialog, dialog.dialog.wide {
+    width: 100vw; max-width: 100vw; height: 100dvh; max-height: 100dvh; margin: 0; border-radius: 0;
+  }
+  .dlg { height: 100dvh; max-height: 100dvh; }
+  .dlg-head { padding: calc(12px + env(safe-area-inset-top, 0px)) 16px 12px; }
+  .dlg-body { padding: 16px; flex: 1; }
+  .dlg-foot { padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px)); }
+  .dlg-foot .right { width: 100%; }
+  .dlg-foot .right .btn { flex: 1 1 auto; }
+  .steps { padding: 10px 16px; gap: 12px; }
+  .form-grid, .form-grid-3 { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* Scroll areas must contain everything inside them, including screen-reader-only labels,
+   or those labels push the page wider than the phone screen. */
+.table-wrap, .heat-wrap, .list, .member-list, .palette-list, .dlg-body { position: relative; }
+@media (hover: none) and (pointer: coarse) {
+  .dlg-foot > .field-hint:first-child, .q-rows + .btn + .field-hint { display: none; }
+}
