@@ -1,5 +1,5 @@
 import { state, getIndex, getItem, deleteQuestion, restoreQuestion, setVerdicts, setFollowUp, removeFromTheme, addToTheme } from './store.js';
-import { VERDICTS, verdictLabel, suggestVerdict, accountOf, themeIndex, repsOf } from './model.js';
+import { VERDICTS, verdictLabel, suggestVerdict, accountOf, themeIndex, repsOf, themeTagHTML, themeById, themeHex } from './model.js';
 import { openQuestionDialog } from './dialogs.js';
 import { openImportDialog } from './import.js';
 import { openLogCall } from './logcall.js';
@@ -186,14 +186,17 @@ export function update() {
          <div class="page-actions"><button type="button" class="btn" data-act="import">Import</button><button type="button" class="btn btn-primary" data-act="log">Log a call</button></div></div>`;
   } else {
     const thr = state.config.shortWordThreshold;
-    listEl.innerHTML = list.slice(0, ui.limit).map((i) => `
-      <button type="button" class="row" role="listitem" data-id="${i.id}" aria-current="${i.id === ui.sel}">
+    listEl.innerHTML = list.slice(0, ui.limit).map((i) => {
+      const th = i.themeId ? themeById(i.themeId) : null;
+      return `
+      <button type="button" class="row${th ? ' has-theme' : ''}" ${th ? `style="--tc:${themeHex(th)}"` : ''} role="listitem" data-id="${i.id}" aria-current="${i.id === ui.sel}">
         <span class="row-id">#${i.id}</span>
         <span class="row-body">
           <span class="row-q">${highlight(i.question, t)}</span>
           <span class="row-a">${highlight(i.answer, t)}</span>
           <span class="row-meta">
             <span>${highlight(accountOf(i), t)}</span>${i.askedAt ? `<span aria-hidden="true">·</span><span>${esc(fmtDate(i.askedAt))}</span>` : ''}<span aria-hidden="true">·</span><span>${highlight(i.answeredBy, t)}</span>
+            ${themeTagHTML(i, { short: true })}
             <span class="tag">${esc(i.topic)}</span>
             ${i.verdict ? `<span class="vbadge v-${i.verdict}">${verdictLabel(i.verdict)}</span>` : ''}
             ${i.kind === 'feedback' ? '<span class="badge badge-accent">Prospect feedback</span>' : ''}
@@ -202,7 +205,8 @@ export function update() {
             ${i.followUp && !i.followUp.done ? '<span class="badge badge-warn">Follow-up open</span>' : ''}
           </span>
         </span>
-      </button>`).join('') + (list.length > ui.limit
+      </button>`;
+    }).join('') + (list.length > ui.limit
         ? `<div class="more"><button type="button" class="btn btn-sm" data-act="more">Show ${Math.min(PAGE, list.length - ui.limit)} more</button></div>` : '');
   }
 
@@ -271,6 +275,7 @@ function renderDetail() {
       <div><dt>Asked</dt><dd>${it.askedAt ? esc(fmtDate(it.askedAt)) : '<a href="#/complete">Add date</a>'}${call ? ` · <a href="#/library?call=${esc(call.id)}">${esc(call.type || 'call')}</a>` : ''}</dd></div>
       <div><dt>Answered by</dt><dd>${esc(it.answeredBy)}</dd></div>
       <div class="span-2"><dt><label for="d-theme">Theme</label></dt><dd class="theme-dd">
+        ${it.themeId && themeById(it.themeId) ? `<span class="theme-dot" style="--tc:${themeHex(themeById(it.themeId))}" aria-hidden="true"></span>` : ''}
         <select class="select select-inline" id="d-theme" data-theme-pick>
           <option value="">No theme</option>
           ${[...state.config.themes].sort((a, b) => a.name.localeCompare(b.name)).map((t) => `<option value="${esc(t.id)}" ${t.id === it.themeId ? 'selected' : ''}>${esc(t.name)}</option>`).join('')}

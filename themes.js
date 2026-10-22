@@ -2,9 +2,9 @@
 
 import {
   state, getItem, getIndex, renameTheme, addToTheme, removeFromTheme, setApproved, mergeThemes, deleteTheme,
-  themeSnapshot, restoreThemes, saveThemes,
+  themeSnapshot, restoreThemes, saveThemes, setThemeColor,
 } from './store.js';
-import { effectiveThemes, accountOf, verdictLabel, isQuestion, shadeAttrs } from './model.js';
+import { effectiveThemes, accountOf, verdictLabel, isQuestion, shadeAttrs, PALETTE, themeColorName, themeHex } from './model.js';
 import { toast, toastError, confirmDialog, openDialog } from './ui.js';
 import { esc, icon, pluralize, uid } from './utils.js';
 
@@ -74,6 +74,7 @@ function paintList() {
       const accts = new Set(t.ids.map((id) => accountOf(getItem(id)))).size;
       const sh = shadeAttrs(t.ids.length, min, max);
       return `<button type="button" class="theme-pick shaded ${sh.cls}" style="${sh.style}" data-sel="${esc(t.id)}" aria-current="${t.id === ui.sel}">
+        <span class="theme-dot" style="--tc:${themeHex(t)}" aria-hidden="true"></span>
         <span class="theme-pick-text"><span class="theme-pick-name">${esc(t.name)}</span>
         <span class="theme-pick-meta">${pluralize(accts, 'account')}${approved ? ' · <span class="ok-text">approved</span>' : ''}</span></span>
         <span class="count-chip" aria-label="${pluralize(t.ids.length, 'question')}">${t.ids.length}</span>
@@ -102,6 +103,20 @@ function paintEditor() {
         <div class="add-row"><input class="input theme-name-input" id="theme-name" value="${esc(t.name)}" autocomplete="off">
           <a class="btn" href="#/library?theme=${esc(t.id)}">Open in Library</a></div>
         <span class="field-hint">Press Enter to save. Short names read best on the Overview, e.g. “QR codes” or “LMS pricing”.</span>
+      </div>
+      <div class="field">
+        <span class="field-label" id="color-label">Color <span class="muted">· ${esc(themeColorName(t))}. Tags this theme’s questions everywhere.</span></span>
+        <div class="palette" role="radiogroup" aria-labelledby="color-label">${(() => {
+          const usedBy = new Map();
+          state.config.themes.filter((x) => x.id !== t.id).forEach((x) => { const c = themeColorName(x); usedBy.set(c, [...(usedBy.get(c) || []), x.name]); });
+          return PALETTE.map(([name, hex]) => {
+            const on = themeColorName(t) === name;
+            const others = usedBy.get(name);
+            return `<button type="button" class="swatch${others ? ' used' : ''}" role="radio" aria-checked="${on}" data-color="${name}" style="--tc:${hex}"
+              title="${name}${others ? ` (also used by ${esc(others.join(', '))})` : ''}" aria-label="${name}${others ? ', already used' : ''}">${on ? '✓' : ''}</button>`;
+          }).join('');
+        })()}</div>
+        <span class="field-hint">Colors with a white ring are already used by another theme.</span>
       </div>
       <div class="field">
         <span class="field-label">Approved answer</span>
@@ -218,6 +233,8 @@ async function onClick(e) {
   const th = current();
   const chk = t.closest('[data-check]');
   if (chk) { const id = Number(chk.dataset.check); if (chk.checked) ui.checked.add(id); else ui.checked.delete(id); paintEditor(); return; }
+  const sw = t.closest('[data-color]');
+  if (sw && th) { if (await setThemeColor(th.id, sw.dataset.color)) toast(`“${th.name}” is now ${sw.dataset.color}`); return; }
   const ap = t.closest('[data-approve]');
   if (ap && th) { if (await setApproved(th.id, Number(ap.dataset.approve))) toast(`#${ap.dataset.approve} is now the approved answer`); return; }
   const rm = t.closest('[data-remove]');

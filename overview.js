@@ -3,7 +3,7 @@
 import { state, getItem, getIndex, setFollowUp, semanticStatus } from './store.js';
 import {
   PERIODS, VERDICTS, verdictLabel, inPeriod, accountOf, isQuestion,
-  effectiveThemes, themeIndex, verdictMix, conflictPairs, monthlyAccounts, isRepeat, shadeAttrs,
+  effectiveThemes, themeIndex, verdictMix, conflictPairs, monthlyAccounts, isRepeat, shadeAttrs, themeById, themeHex,
 } from './model.js';
 import { openSalesforceImport } from './import.js';
 import { toast, toastError } from './ui.js';
@@ -177,6 +177,7 @@ function themeRow(r) {
     <div class="theme-item">
       <button type="button" class="theme-grid theme-btn shaded ${sh.cls}" style="${sh.style}" data-theme="${esc(r.t.id)}" aria-expanded="${open}">
         <span class="theme-name"><span class="chev" aria-hidden="true">${open ? '▾' : '▸'}</span>
+          ${r.t.confirmed && themeById(r.t.id) ? `<span class="theme-dot" style="--tc:${themeHex(themeById(r.t.id))}" aria-hidden="true"></span>` : '<span class="theme-dot suggested" aria-hidden="true" title="Suggested theme"></span>'}
           <span><strong title="${esc(r.t.name)}">${esc(r.t.name)}</strong><span class="muted">${esc(r.items[0].topic)}${r.last ? ` · last asked ${esc(fmtDate(r.last, { year: false }))}` : ''}</span></span></span>
         <span class="num"><span class="count-chip">${r.items.length}</span></span>
         <span class="num mono">${r.accounts.length}</span>

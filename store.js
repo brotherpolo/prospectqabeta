@@ -292,7 +292,7 @@ export function logCall(call, questions) {
     let id = nextId(d.items);
     for (const q of questions) {
       if (q.newTheme && !cfg.themes.some((t) => t.id === q.newTheme.id)) {
-        cfg.themes.push({ id: q.newTheme.id, name: q.newTheme.name, createdAt: now(), by });
+        cfg.themes.push({ id: q.newTheme.id, name: q.newTheme.name, color: nextColor(cfg.themes), createdAt: now(), by });
         const peer = d.items.find((x) => x.id === q.newTheme.withId);
         if (peer && !peer.themeId) peer.themeId = q.newTheme.id;
       }
@@ -379,7 +379,7 @@ export function saveThemes(themes) {
     for (const t of themes) {
       const ex = cfg.themes.find((x) => x.id === t.id);
       if (ex) ex.name = t.name;
-      else cfg.themes.push({ id: t.id, name: t.name, createdAt: now(), by });
+      else cfg.themes.push({ id: t.id, name: t.name, color: t.color || nextColor(cfg.themes), createdAt: now(), by });
       d.items.forEach((x) => { if (t.ids.includes(x.id)) assignTheme(x, t.id); });
     }
   });
@@ -387,6 +387,22 @@ export function saveThemes(themes) {
 
 export function renameTheme(id, name) {
   return mutate((d) => { const t = cfgOf(d).themes.find((x) => x.id === id); if (t) t.name = name; });
+}
+
+/** Next unused palette color, given the themes in a draft (kept in sync with model.js PALETTE). */
+const PALETTE_NAMES = ['Blue', 'Sky', 'Teal', 'Green', 'Lime', 'Olive', 'Amber', 'Orange', 'Coral', 'Rose', 'Magenta', 'Plum', 'Purple', 'Indigo', 'Brown', 'Slate'];
+const fallbackColor = (id) => { let h = 0; for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) | 0; return PALETTE_NAMES[Math.abs(h) % PALETTE_NAMES.length]; };
+function nextColor(themes) {
+  const used = new Map();
+  themes.forEach((t) => { const c = PALETTE_NAMES.includes(t.color) ? t.color : fallbackColor(t.id || ''); used.set(c, (used.get(c) || 0) + 1); });
+  const min = Math.min(...PALETTE_NAMES.map((n) => used.get(n) || 0));
+  return ASSIGN_ORDER.find((n) => (used.get(n) || 0) === min);
+}
+// Order new themes take colors in: each next color is far from the previous ones, so early themes are easy to tell apart.
+const ASSIGN_ORDER = ['Blue', 'Orange', 'Teal', 'Magenta', 'Lime', 'Purple', 'Amber', 'Sky', 'Rose', 'Green', 'Brown', 'Indigo', 'Coral', 'Olive', 'Plum', 'Slate'];
+
+export function setThemeColor(id, color) {
+  return mutate((d) => { const t = cfgOf(d).themes.find((x) => x.id === id); if (t) t.color = color; });
 }
 
 /** Put a question in a theme (or none). Leaving a theme clears its approved/variant flags there. */
@@ -402,7 +418,7 @@ export function addToTheme(ids, themeId, create = null) {
   const by = userLabel();
   return mutate((d) => {
     const cfg = cfgOf(d);
-    if (create && !cfg.themes.some((t) => t.id === themeId)) cfg.themes.push({ id: themeId, name: create.name, createdAt: now(), by });
+    if (create && !cfg.themes.some((t) => t.id === themeId)) cfg.themes.push({ id: themeId, name: create.name, color: create.color || nextColor(cfg.themes), createdAt: now(), by });
     const anchor = d.items.find((x) => x.themeId === themeId && !ids.includes(x.id));
     d.items.forEach((x) => { if (ids.includes(x.id)) assignTheme(x, themeId); });
     if (anchor) for (const id of ids) addCheckPairs(d, [anchor.id, id], true);
@@ -516,7 +532,7 @@ export function saveStandard(ids, standardId, answer, groupKey, themeName, theme
   const by = userLabel();
   return mutate((d) => {
     const cfg = cfgOf(d);
-    if (!cfg.themes.some((t) => t.id === themeId)) cfg.themes.push({ id: themeId, name: themeName, createdAt: now(), by });
+    if (!cfg.themes.some((t) => t.id === themeId)) cfg.themes.push({ id: themeId, name: themeName, color: nextColor(cfg.themes), createdAt: now(), by });
     else cfg.themes.find((t) => t.id === themeId).name = themeName;
     d.items.forEach((x) => {
       if (!ids.includes(x.id)) return;

@@ -154,3 +154,41 @@ export function shadeAttrs(n, min, max) {
   const t = max === min ? 1 : (n - min) / (max - min);
   return { style: `--t:${t.toFixed(3)}`, cls: t > 0.45 ? 'shade-strong' : '' };
 }
+
+// ---------- Theme colors ----------
+// 16 distinct colors. Pure red is left out: red means "needs attention" elsewhere in the app.
+export const PALETTE = [
+  ['Blue', '#2F6FDE'], ['Sky', '#1C9BD6'], ['Teal', '#0F9488'], ['Green', '#2E9E4F'],
+  ['Lime', '#7CA318'], ['Olive', '#857F22'], ['Amber', '#D99A06'], ['Orange', '#E0701B'],
+  ['Coral', '#E46A5A'], ['Rose', '#D9466F'], ['Magenta', '#B9459E'], ['Plum', '#8E3E6E'],
+  ['Purple', '#7C4DD8'], ['Indigo', '#4A55C9'], ['Brown', '#9A6B3F'], ['Slate', '#5B6B7F'],
+];
+const hexOf = (name) => PALETTE.find((p) => p[0] === name)?.[1];
+
+function hashIndex(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return Math.abs(h) % PALETTE.length;
+}
+
+/** A theme's color name: the one chosen, or a stable default for older themes without one. */
+export const themeColorName = (t) => (t && hexOf(t.color) ? t.color : PALETTE[hashIndex(t?.id || '')][0]);
+export const themeHex = (t) => hexOf(themeColorName(t));
+export const themeById = (id) => state.config.themes.find((t) => t.id === id);
+
+/** The first palette color no theme is using yet (cycles once all 16 are taken). */
+export function nextThemeColor(themes = state.config.themes) {
+  const used = new Map();
+  themes.forEach((t) => { const c = themeColorName(t); used.set(c, (used.get(c) || 0) + 1); });
+  const min = Math.min(...PALETTE.map(([n]) => used.get(n) || 0));
+  return PALETTE.find(([n]) => (used.get(n) || 0) === min)[0];
+}
+
+/** Small colored tag with the theme name, for any question in a confirmed theme. */
+export function themeTagHTML(item, { short = false } = {}) {
+  const t = item?.themeId ? themeById(item.themeId) : null;
+  if (!t) return '';
+  const name = short && t.name.length > 32 ? `${t.name.slice(0, 30)}…` : t.name;
+  return `<span class="theme-tag" style="--tc:${themeHex(t)}" title="Theme: ${escAttr(t.name)}"><i aria-hidden="true"></i>${escAttr(name)}</span>`;
+}
+const escAttr = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));

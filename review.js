@@ -7,6 +7,7 @@ import {
 import { toast } from './ui.js';
 import { esc, icon, wordCount, canonicalRep, relTime, pluralize, uid } from './utils.js';
 import { displayTerm } from './similarity.js';
+import { themeById, themeHex, themeTagHTML } from './model.js';
 
 const ui = { tab: 'suggested', key: null, pick: [], std: {}, drafts: {}, names: {} };
 let root = null;
@@ -170,9 +171,11 @@ function compareBlock(ids, group) {
           const vs = it.id === best.a.id ? best.b : best.a;
           const sc = idx.compare(it.id, vs.id).score;
           const isStd = it.id === stdItem.id;
-          return `<article class="cmp-card" data-std="${isStd}">
+          const th = it.themeId ? themeById(it.themeId) : null;
+          return `<article class="cmp-card${th ? ' has-theme' : ''}" data-std="${isStd}" ${th ? `style="--tc:${themeHex(th)}"` : ''}>
             <div class="cmp-top"><a class="mono" href="#/library/${it.id}">#${it.id}</a>
               ${isStd ? '<span class="badge badge-ok">Approved answer</span>' : `<span>${sc}% to #${vs.id}</span>`}</div>
+            ${th ? themeTagHTML(it) : '<span class="muted" style="font-size:12px">No theme yet</span>'}
             <h3 class="cmp-q">${esc(it.question)}</h3>
             <p class="cmp-a">${esc(it.answer)}</p>
             <div class="cmp-foot"><span>${esc(it.askedBy)} → ${esc(it.answeredBy)}</span><span>${pluralize(wordCount(it.answer), 'word')} · ${esc(it.topic)}</span></div>
