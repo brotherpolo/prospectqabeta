@@ -18,6 +18,7 @@ A build-free web app. Every file sits in one folder next to `index.html`, so it 
 | `overview.js` | **Overview**, the home screen |
 | `library.js` | **Library**: search, filters, question detail |
 | `review.js` | **Review**: confirm themes, approve answers |
+| `themes.js` | **Themes**: rename, approve, add/remove/move questions, merge, delete |
 | `reps.js` | **Reps**: answer quality and consistency |
 | `insights.js` | **Insights**: categories, interest map, data health |
 | `calls.js` | **Calls**: delete a call, backups, start fresh |
@@ -29,7 +30,7 @@ A build-free web app. Every file sits in one folder next to `index.html`, so it 
 
 ## Uploading
 
-Upload **all** files to the repo root, replacing the old ones. Eight files are new: `model.js`, `semantic.js`,
+Upload **all** files to the repo root, replacing the old ones. Nine files are new: `themes.js`, `model.js`, `semantic.js`,
 `semantic-worker.js`, `overview.js`, `reps.js`, `calls.js`, `logcall.js` and `complete.js`.
 Then hard-refresh (Ctrl+Shift+R).
 
@@ -65,6 +66,19 @@ If a file is missing, the page names it instead of showing “Loading…”.
 - **A conflict means two nearly identical questions with opposite answers.** That's a 70%+ match, one answer marked No and the other Yes or Partial. Different questions in the same theme can legitimately have different answers.
 - **Repeat rate** is the share of questions whose theme already had an earlier question.
 - **Questions without a date appear only under All time.** The Overview opens on All time until most questions have dates.
+
+## Editing themes
+
+- **Themes** in the sidebar lists every confirmed theme, and below them the suggested ones, each with a Confirm button.
+- **For the selected theme you can:**
+  - rename it (press Enter to save)
+  - pick the approved answer
+  - remove questions, or tick several and move them to another theme or a new one
+  - add questions from “Likely belongs here” or by searching
+  - merge it into another theme, or delete it
+- **Delete keeps the questions;** they just leave the theme. Removing, moving, merging and deleting can all be undone right after.
+- **Each question in the Library has a Theme picker,** so you can move it, start a new theme with it, or remove it, without leaving the Library.
+- **Every add or remove is also a matching example.** It's added to the matching check, so tuning gets better as you curate.
 
 ## Deleting and starting fresh
 

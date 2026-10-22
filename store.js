@@ -380,7 +380,7 @@ export function saveThemes(themes) {
       const ex = cfg.themes.find((x) => x.id === t.id);
       if (ex) ex.name = t.name;
       else cfg.themes.push({ id: t.id, name: t.name, createdAt: now(), by });
-      d.items.forEach((x) => { if (t.ids.includes(x.id)) x.themeId = t.id; });
+      d.items.forEach((x) => { if (t.ids.includes(x.id)) assignTheme(x, t.id); });
     }
   });
 }
@@ -389,15 +389,90 @@ export function renameTheme(id, name) {
   return mutate((d) => { const t = cfgOf(d).themes.find((x) => x.id === id); if (t) t.name = name; });
 }
 
-export function removeFromTheme(itemId) {
-  return mutate((d) => { const x = d.items.find((i) => i.id === itemId); if (x) { delete x.themeId; delete x.standard; delete x.variantOf; } });
+/** Put a question in a theme (or none). Leaving a theme clears its approved/variant flags there. */
+function assignTheme(x, themeId) {
+  if (x.themeId === themeId) return;
+  delete x.standard;
+  delete x.variantOf;
+  if (themeId) x.themeId = themeId; else delete x.themeId;
+}
+
+/** Move questions into a theme, creating it if `create` is given ({ name }). Feeds the matching check. */
+export function addToTheme(ids, themeId, create = null) {
+  const by = userLabel();
+  return mutate((d) => {
+    const cfg = cfgOf(d);
+    if (create && !cfg.themes.some((t) => t.id === themeId)) cfg.themes.push({ id: themeId, name: create.name, createdAt: now(), by });
+    const anchor = d.items.find((x) => x.themeId === themeId && !ids.includes(x.id));
+    d.items.forEach((x) => { if (ids.includes(x.id)) assignTheme(x, themeId); });
+    if (anchor) for (const id of ids) addCheckPairs(d, [anchor.id, id], true);
+  });
+}
+
+export function removeFromTheme(itemIds) {
+  const ids = [].concat(itemIds);
+  return mutate((d) => {
+    for (const id of ids) {
+      const x = d.items.find((i) => i.id === id);
+      if (!x || !x.themeId) continue;
+      const anchor = d.items.find((i) => i.themeId === x.themeId && i.id !== id && !ids.includes(i.id));
+      assignTheme(x, null);
+      if (anchor) addCheckPairs(d, [anchor.id, id], false);
+    }
+  });
+}
+
+/** Mark one question's answer as the approved answer for its theme. */
+export function setApproved(themeId, itemId) {
+  return mutate((d) => {
+    d.items.forEach((x) => {
+      if (x.themeId !== themeId) return;
+      if (x.id === itemId) { x.standard = true; delete x.variantOf; }
+      else { delete x.standard; if (itemId) x.variantOf = itemId; else delete x.variantOf; }
+    });
+  });
+}
+
+/** Move every question from one theme into another, then remove the empty theme. */
+export function mergeThemes(fromId, toId) {
+  return mutate((d) => {
+    const cfg = cfgOf(d);
+    const target = d.items.find((x) => x.themeId === toId && x.standard);
+    d.items.forEach((x) => {
+      if (x.themeId !== fromId) return;
+      x.themeId = toId;
+      if (target) { delete x.standard; x.variantOf = target.id; }
+      else delete x.variantOf;
+    });
+    cfg.themes = cfg.themes.filter((t) => t.id !== fromId);
+  });
 }
 
 export function deleteTheme(id) {
   return mutate((d) => {
     const cfg = cfgOf(d);
     cfg.themes = cfg.themes.filter((t) => t.id !== id);
-    d.items.forEach((x) => { if (x.themeId === id) { delete x.themeId; delete x.standard; delete x.variantOf; } });
+    d.items.forEach((x) => { if (x.themeId === id) assignTheme(x, null); });
+  });
+}
+
+/** Snapshot of all theme assignments, for undo. */
+export function themeSnapshot() {
+  return {
+    themes: structuredClone(state.config.themes),
+    members: state.items.map((x) => ({ id: x.id, themeId: x.themeId, standard: x.standard, variantOf: x.variantOf })),
+  };
+}
+
+export function restoreThemes(snap) {
+  const byId = new Map(snap.members.map((m) => [m.id, m]));
+  return mutate((d) => {
+    cfgOf(d).themes = structuredClone(snap.themes);
+    d.items.forEach((x) => {
+      const m = byId.get(x.id);
+      if (!m) return;
+      for (const k of ['themeId', 'standard', 'variantOf']) { if (m[k] == null) delete x[k]; else x[k] = m[k]; }
+    });
   });
 }
 

@@ -15,13 +15,14 @@ const VIEWS = {
   overview: () => import('./overview.js'),
   library: () => Promise.resolve(library),
   review: () => import('./review.js'),
+  themes: () => import('./themes.js'),
   reps: () => import('./reps.js'),
   insights: () => import('./insights.js'),
   calls: () => import('./calls.js'),
   complete: () => import('./complete.js'),
   rules: () => import('./rules.js'),
 };
-const TITLES = { overview: 'Overview', library: 'Library', review: 'Review', reps: 'Reps', insights: 'Insights', calls: 'Calls', complete: 'Complete records', rules: 'Matching rules' };
+const TITLES = { overview: 'Overview', library: 'Library', review: 'Review', themes: 'Themes', reps: 'Reps', insights: 'Insights', calls: 'Calls', complete: 'Complete records', rules: 'Matching rules' };
 
 const $ = (s) => document.querySelector(s);
 const viewEl = $('#view');
@@ -227,7 +228,7 @@ function openPalette() {
     { label: 'Log a call', icon: 'plus', run: actions.log },
     { label: 'New single question', icon: 'plus', run: actions.new },
     { label: 'Import questions', icon: 'upload', run: actions.import },
-    ...Object.entries(TITLES).map(([k, t]) => ({ label: `Go to ${t}`, icon: { overview: 'chart', library: 'library', review: 'review', reps: 'user', insights: 'chart', calls: 'calendar', complete: 'flag', rules: 'sliders' }[k], run: () => { location.hash = `#/${k}`; } })),
+    ...Object.entries(TITLES).map(([k, t]) => ({ label: `Go to ${t}`, icon: { overview: 'chart', library: 'library', review: 'review', themes: 'tag', reps: 'user', insights: 'chart', calls: 'calendar', complete: 'flag', rules: 'sliders' }[k], run: () => { location.hash = `#/${k}`; } })),
     { label: 'Manage categories', icon: 'tag', run: actions.categories },
     { label: 'Keyboard shortcuts', icon: 'more', run: openShortcuts },
   ];

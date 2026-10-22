@@ -186,7 +186,7 @@ function themeRow(r) {
           <div class="toolbar">${r.items.map((i) => `<a class="mono" href="#/library/${i.id}">#${i.id}</a>`).join(' ')}</div>
           <div class="toolbar">
             <a class="btn btn-sm" href="#/library?ids=${r.all.map((i) => i.id).join(',')}">Open in Library</a>
-            ${r.t.confirmed ? '' : `<a class="btn btn-sm btn-primary" href="#/review?key=${esc(r.t.key)}">Confirm theme</a>`}
+            ${r.t.confirmed ? `<a class="btn btn-sm" href="#/themes?id=${encodeURIComponent(r.t.id)}">Edit theme</a>` : `<a class="btn btn-sm btn-primary" href="#/review?key=${esc(r.t.key)}">Confirm theme</a>`}
             ${r.conflicts.length ? `<a class="btn btn-sm" href="#/review?tab=pick&ids=${r.conflicts[0].no.id},${r.conflicts[0].yes.id}">Settle in Review</a>` : r.t.confirmed && !r.std ? `<a class="btn btn-sm" href="#/review?tab=pick&ids=${r.all.slice(0, 3).map((i) => i.id).join(',')}">Choose approved answer</a>` : ''}
           </div>
         </div>

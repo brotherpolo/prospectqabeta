@@ -1,11 +1,11 @@
-import { state, getIndex, getItem, deleteQuestion, restoreQuestion, setVerdicts, setFollowUp, removeFromTheme } from './store.js';
+import { state, getIndex, getItem, deleteQuestion, restoreQuestion, setVerdicts, setFollowUp, removeFromTheme, addToTheme } from './store.js';
 import { VERDICTS, verdictLabel, suggestVerdict, accountOf, themeIndex, repsOf } from './model.js';
 import { openQuestionDialog } from './dialogs.js';
 import { openImportDialog } from './import.js';
 import { openLogCall } from './logcall.js';
-import { toast, toastError, confirmDialog } from './ui.js';
+import { toast, toastError, confirmDialog, openDialog } from './ui.js';
 import {
-  esc, icon, wordCount, isNoAnswer, debounce, highlight, copyText, loadXLSX, pluralize, fmtDate, todayISO,
+  esc, icon, wordCount, isNoAnswer, debounce, highlight, copyText, loadXLSX, pluralize, fmtDate, todayISO, uid,
 } from './utils.js';
 
 const PAGE = 100;
@@ -112,7 +112,8 @@ export function mount(el, params) {
   const search = el.querySelector('#lib-search');
   search.addEventListener('input', debounce(() => { ui.q = search.value; ui.limit = PAGE; update(); }, 120));
   el.onclick = onClick;
-  el.onchange = (e) => {
+  el.onchange = async (e) => {
+    if (e.target.matches('[data-theme-pick]')) { await pickTheme(e.target); return; }
     const f = e.target.dataset.filter;
     if (!f) return;
     ui[f] = e.target.value;
@@ -269,7 +270,14 @@ function renderDetail() {
       <div><dt>Contact</dt><dd>${esc(it.contact || it.askedBy)}</dd></div>
       <div><dt>Asked</dt><dd>${it.askedAt ? esc(fmtDate(it.askedAt)) : '<a href="#/complete">Add date</a>'}${call ? ` · <a href="#/library?call=${esc(call.id)}">${esc(call.type || 'call')}</a>` : ''}</dd></div>
       <div><dt>Answered by</dt><dd>${esc(it.answeredBy)}</dd></div>
-      <div><dt>Theme</dt><dd>${theme ? `<a href="#/library?theme=${esc(theme.id)}">${esc(theme.name)}</a>${theme.confirmed ? ` <button type="button" class="link-btn small" data-act="untheme">Remove</button>` : ' <span class="muted">(suggested)</span>'}` : '<span class="muted">None</span>'}</dd></div>
+      <div class="span-2"><dt><label for="d-theme">Theme</label></dt><dd class="theme-dd">
+        <select class="select select-inline" id="d-theme" data-theme-pick>
+          <option value="">No theme</option>
+          ${[...state.config.themes].sort((a, b) => a.name.localeCompare(b.name)).map((t) => `<option value="${esc(t.id)}" ${t.id === it.themeId ? 'selected' : ''}>${esc(t.name)}</option>`).join('')}
+          <option value="__new">New theme…</option>
+        </select>
+        ${it.themeId ? `<a href="#/themes?id=${encodeURIComponent(it.themeId)}" class="small-link">Edit theme</a>` : theme ? `<span class="muted small-link">Suggested: ${esc(theme.name.slice(0, 40))}</span>` : ''}
+      </dd></div>
       <div><dt>Answer length</dt><dd>${pluralize(words, 'word')}</dd></div>
     </dl>
     ${related.length ? `<div class="sim-list"><h3 class="section-title">Linked questions</h3>${related.map((v) => simRow(v, null)).join('')}</div>` : ''}
@@ -296,6 +304,36 @@ function select(id) {
 }
 
 function closeSheet() { sheetOpen = false; renderDetail(); }
+
+async function pickTheme(sel) {
+  const it = ui.sel != null ? getItem(ui.sel) : null;
+  if (!it) return;
+  const v = sel.value;
+  if (v === '') { if (await removeFromTheme(it.id)) toast('Removed from the theme'); return; }
+  if (v === '__new') {
+    sel.value = it.themeId || '';
+    openDialog({
+      title: 'New theme',
+      body: `<div class="field"><label class="field-label" for="nt">Theme name</label><input class="input" id="nt" value="${esc(it.question.replace(/\?$/, '').slice(0, 60))}"></div>`,
+      foot: '<div class="right"><button type="button" class="btn" data-close>Cancel</button><button type="button" class="btn btn-primary" data-ok>Create</button></div>',
+      onMount: (d) => {
+        const inp = d.querySelector('#nt');
+        inp.focus(); inp.select();
+        const go = async () => {
+          const name = inp.value.trim();
+          if (!name) return;
+          d.close();
+          if (await addToTheme([it.id], uid('theme'), { name })) toast(`Created “${name}” with #${it.id}`);
+        };
+        d.querySelector('[data-ok]').addEventListener('click', go);
+        inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); go(); } });
+      },
+    });
+    return;
+  }
+  const t = state.config.themes.find((x) => x.id === v);
+  if (await addToTheme([it.id], v)) toast(`Moved #${it.id} to “${t?.name}”`);
+}
 
 export function editSelected() {
   if (ui.sel != null && getItem(ui.sel)) openQuestionDialog(ui.sel);
@@ -332,7 +370,6 @@ async function onClick(e) {
     case 'edit': if (it) openQuestionDialog(it.id); break;
     case 'close-sheet': closeSheet(); break;
     case 'copy': if (it && await copyText(it.answer)) toast('Answer copied'); break;
-    case 'untheme': if (it && await removeFromTheme(it.id)) toast('Removed from the theme'); break;
     case 'fu-toggle': if (it?.followUp) await setFollowUp(it.id, { ...it.followUp, done: !it.followUp.done }); break;
     case 'delete': {
       if (!it) return;

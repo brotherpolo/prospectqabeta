@@ -264,6 +264,7 @@ export function openMoreDialog(actions) {
     title: 'More',
     body: `<nav class="nav" aria-label="More">
       <button class="nav-link" type="button" data-act="log">${icon('plus')}Log a call</button>
+      <a class="nav-link" href="#/themes" data-close>${icon('tag')}Themes</a>
       <a class="nav-link" href="#/reps" data-close>${icon('user')}Reps</a>
       <a class="nav-link" href="#/insights" data-close>${icon('chart')}Insights</a>
       <a class="nav-link" href="#/calls" data-close>${icon('calendar')}Calls</a>
