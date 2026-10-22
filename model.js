@@ -145,3 +145,12 @@ export function isRepeat(item, themeOf) {
     return o && when(o) < when(item);
   });
 }
+
+/**
+ * Shade for a theme by question count: 0 = fewest, 1 = most. Returned as inline CSS
+ * (`--t`) plus a class for dark chip text; colors are computed in app.css so dark mode works.
+ */
+export function shadeAttrs(n, min, max) {
+  const t = max === min ? 1 : (n - min) / (max - min);
+  return { style: `--t:${t.toFixed(3)}`, cls: t > 0.45 ? 'shade-strong' : '' };
+}

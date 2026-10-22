@@ -3,13 +3,13 @@
 import { state, getItem, getIndex, setFollowUp, semanticStatus } from './store.js';
 import {
   PERIODS, VERDICTS, verdictLabel, inPeriod, accountOf, isQuestion,
-  effectiveThemes, themeIndex, verdictMix, conflictPairs, monthlyAccounts, isRepeat,
+  effectiveThemes, themeIndex, verdictMix, conflictPairs, monthlyAccounts, isRepeat, shadeAttrs,
 } from './model.js';
 import { openSalesforceImport } from './import.js';
 import { toast, toastError } from './ui.js';
 import { esc, icon, fmtDate, todayISO, loadXLSX, pluralize } from './utils.js';
 
-const ui = { period: null, open: null, showAll: false };
+const ui = { period: null, open: null, showAll: false, rank: 'accounts' };
 let root = null;
 
 export function mount(el, params) {
@@ -37,8 +37,12 @@ function themeRows(p) {
     const last = items.map((i) => i.askedAt).filter(Boolean).sort().at(-1);
     const prev = p === 'all' ? 0 : new Set(all.filter((i) => inPeriod(i, p, 1)).map(accountOf)).size;
     return { t, all, items, accounts, mix, std, status, conflicts, last, spark: monthlyAccounts(all), prev };
-  }).filter(Boolean).sort((a, b) => b.accounts.length - a.accounts.length || b.items.length - a.items.length);
+  }).filter(Boolean).sort((a, b) => (ui.rank === 'questions'
+    ? b.items.length - a.items.length || b.accounts.length - a.accounts.length
+    : b.accounts.length - a.accounts.length || b.items.length - a.items.length));
 }
+
+let shadeRange = [0, 0];
 
 const STATUS = {
   approved: ['Approved', 'badge-ok'],
@@ -96,6 +100,8 @@ export function update() {
   ];
 
   const visible = ui.showAll ? rows : rows.slice(0, 10);
+  const counts = rows.map((r) => r.items.length);
+  shadeRange = [Math.min(...counts), Math.max(...counts)];
 
   root.innerHTML = `
     <div class="page">
@@ -122,7 +128,12 @@ export function update() {
       <div class="split">
         <section class="card themes-card" aria-label="Top themes">
           <div class="card-head">
-            <h2 class="card-title">Top themes</h2>
+            <h2 class="card-title">Top themes <span class="shade-legend" style="margin-left:10px;font-weight:400">More asked <i></i> Fewer</span></h2>
+            <span class="rank-toggle">Rank by
+              <span class="tabs" role="tablist" aria-label="Rank themes by">
+                <button type="button" class="tab" role="tab" data-rank="accounts" aria-selected="${ui.rank === 'accounts'}">Accounts</button>
+                <button type="button" class="tab" role="tab" data-rank="questions" aria-selected="${ui.rank === 'questions'}">Questions</button>
+              </span></span>
             <span class="legend">${VERDICTS.slice(0, 5).map((v) => `<span><i style="background:${v.color}"></i>${v.label}</span>`).join('')}</span>
           </div>
           ${rows.length ? `
@@ -160,13 +171,14 @@ function notices({ p, undated, accounts, mode, sem }) {
 function themeRow(r) {
   const open = ui.open === r.t.id;
   const [label, cls] = STATUS[r.status];
+  const sh = shadeAttrs(r.items.length, ...shadeRange);
   const shown = r.std || [...r.items].sort((a, b) => (b.askedAt || '').localeCompare(a.askedAt || '') || b.id - a.id)[0];
   return `
     <div class="theme-item">
-      <button type="button" class="theme-grid theme-btn" data-theme="${esc(r.t.id)}" aria-expanded="${open}">
+      <button type="button" class="theme-grid theme-btn shaded ${sh.cls}" style="${sh.style}" data-theme="${esc(r.t.id)}" aria-expanded="${open}">
         <span class="theme-name"><span class="chev" aria-hidden="true">${open ? '▾' : '▸'}</span>
           <span><strong title="${esc(r.t.name)}">${esc(r.t.name)}</strong><span class="muted">${esc(r.items[0].topic)}${r.last ? ` · last asked ${esc(fmtDate(r.last, { year: false }))}` : ''}</span></span></span>
-        <span class="num mono">${r.items.length}</span>
+        <span class="num"><span class="count-chip">${r.items.length}</span></span>
         <span class="num mono">${r.accounts.length}</span>
         <span>${spark(r.spark)}</span>
         <span>${mixBar(r.mix)}</span>
@@ -281,6 +293,8 @@ async function onClick(e) {
   const t = e.target;
   const per = t.closest('[data-period]');
   if (per) { ui.period = per.dataset.period; ui.open = null; history.replaceState(null, '', `#/overview?period=${ui.period}`); update(); return; }
+  const rk = t.closest('[data-rank]');
+  if (rk) { ui.rank = rk.dataset.rank; update(); return; }
   const th = t.closest('[data-theme]');
   if (th) { ui.open = ui.open === th.dataset.theme ? null : th.dataset.theme; update(); return; }
   const done = t.closest('[data-done]');

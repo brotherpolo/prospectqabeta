@@ -731,3 +731,43 @@ a.heat-cell:hover { outline: 2px solid var(--ink); outline-offset: -2px; }
 .theme-dd { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .theme-dd .select-inline { max-width: 100%; }
 .small-link { font-size: 12px; }
+
+/* Theme shading by question count: one hue, darker = more questions (readable with any color vision). */
+.shaded {
+  --shade-bar: hsl(226 66% calc(88% - 46% * var(--t, 0)));
+  --shade-tint: hsl(226 70% calc(98.5% - 5.5% * var(--t, 0)));
+  --shade-edge: hsl(226 40% calc(92% - 10% * var(--t, 0)));
+  --shade-chip: var(--shade-bar);
+  --shade-ink: #14296F;
+}
+.shaded.shade-strong { --shade-ink: #FFFFFF; }
+@media (prefers-color-scheme: dark) {
+  .shaded {
+    --shade-bar: hsl(226 70% calc(30% + 40% * var(--t, 0)));
+    --shade-tint: hsl(226 35% calc(13% + 6% * var(--t, 0)));
+    --shade-edge: hsl(226 30% calc(22% + 12% * var(--t, 0)));
+    --shade-ink: #E6ECFF;
+  }
+  .shaded.shade-strong { --shade-ink: #0B1330; }
+}
+.count-chip { font-family: var(--mono); font-size: 13px; font-weight: 500; min-width: 30px; text-align: center; padding: 2px 9px; border-radius: 999px; background: var(--shade-chip); color: var(--shade-ink); display: inline-block; }
+.shade-legend { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+.shade-legend i { width: 90px; height: 8px; border-radius: 999px; background: linear-gradient(90deg, hsl(226 66% 42%), hsl(226 66% 88%)); display: inline-block; }
+
+/* Themes list */
+.theme-pick.shaded { flex-direction: row; justify-content: space-between; align-items: center; gap: 10px;
+  background: var(--shade-tint); border: 1px solid var(--shade-edge); box-shadow: inset 5px 0 0 var(--shade-bar); padding-left: 15px; }
+.theme-pick.shaded:hover { filter: brightness(0.98); }
+.theme-pick.shaded[aria-current="true"] { border: 2px solid var(--ink); padding: 9px 11px 9px 14px; }
+.theme-pick-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+
+/* Overview rows */
+.theme-btn.shaded { box-shadow: inset 5px 0 0 var(--shade-bar); background: var(--shade-tint); }
+.theme-btn.shaded:hover, .theme-btn.shaded[aria-expanded="true"] { filter: brightness(0.98); }
+@media (prefers-color-scheme: dark) {
+  .shade-legend i { background: linear-gradient(90deg, hsl(226 70% 70%), hsl(226 70% 30%)); }
+}
+.rank-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+.rank-toggle .tabs { padding: 3px; }
+.rank-toggle .tab { height: 28px; padding: 0 10px; font-size: 12px; }
+.legend i { box-shadow: inset 0 0 0 1px var(--line-strong); }

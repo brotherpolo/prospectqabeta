@@ -4,7 +4,7 @@ import {
   state, getItem, getIndex, renameTheme, addToTheme, removeFromTheme, setApproved, mergeThemes, deleteTheme,
   themeSnapshot, restoreThemes, saveThemes,
 } from './store.js';
-import { effectiveThemes, accountOf, verdictLabel, isQuestion } from './model.js';
+import { effectiveThemes, accountOf, verdictLabel, isQuestion, shadeAttrs } from './model.js';
 import { toast, toastError, confirmDialog, openDialog } from './ui.js';
 import { esc, icon, pluralize, uid } from './utils.js';
 
@@ -62,15 +62,21 @@ export function update() {
 function paintList() {
   const el = root.querySelector('[data-list]');
   const q = ui.q.trim().toLowerCase();
-  const list = confirmed().filter((t) => !q || t.name.toLowerCase().includes(q));
+  const all = confirmed();
+  const counts = all.map((t) => t.ids.length);
+  const [min, max] = [Math.min(...counts), Math.max(...counts)];
+  const list = all.filter((t) => !q || t.name.toLowerCase().includes(q));
   const suggested = effectiveThemes().filter((t) => !t.confirmed && (!q || t.name.toLowerCase().includes(q)));
   el.innerHTML = `
+    ${list.length > 1 ? '<span class="shade-legend" style="padding:2px 4px 4px">More questions <i></i> Fewer</span>' : ''}
     ${list.length ? list.map((t) => {
       const approved = t.ids.some((id) => getItem(id)?.standard);
       const accts = new Set(t.ids.map((id) => accountOf(getItem(id)))).size;
-      return `<button type="button" class="theme-pick" data-sel="${esc(t.id)}" aria-current="${t.id === ui.sel}">
-        <span class="theme-pick-name">${esc(t.name)}</span>
-        <span class="theme-pick-meta">${pluralize(t.ids.length, 'question')} · ${pluralize(accts, 'account')}${approved ? ' · <span class="ok-text">approved</span>' : ''}</span>
+      const sh = shadeAttrs(t.ids.length, min, max);
+      return `<button type="button" class="theme-pick shaded ${sh.cls}" style="${sh.style}" data-sel="${esc(t.id)}" aria-current="${t.id === ui.sel}">
+        <span class="theme-pick-text"><span class="theme-pick-name">${esc(t.name)}</span>
+        <span class="theme-pick-meta">${pluralize(accts, 'account')}${approved ? ' · <span class="ok-text">approved</span>' : ''}</span></span>
+        <span class="count-chip" aria-label="${pluralize(t.ids.length, 'question')}">${t.ids.length}</span>
       </button>`;
     }).join('') : `<p class="muted" style="padding:8px 4px">${q ? 'No themes match.' : 'No themes yet.'}</p>`}
     ${suggested.length ? `<div class="theme-list-head">Suggested, not yet confirmed</div>
