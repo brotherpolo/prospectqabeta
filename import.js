@@ -1,7 +1,6 @@
 // Import from Excel or CSV: column matching, exact and near-duplicate detection, and undo.
 
 import { state, getIndex, getItem, importRecords, undoImport, matchText, composeAsker, setAccounts, companyOf } from './store.js';
-import { suggestVerdict } from './model.js';
 import { openDialog, toast, toastError, confirmDialog } from './ui.js';
 import { esc, icon, loadXLSX, pluralize, relTime } from './utils.js';
 
@@ -129,8 +128,7 @@ export function openImportDialog() {
         answeredBy: val(r, 'answeredBy') || 'Unassigned',
         topic: val(r, 'topic'),
       };
-      const v = suggestVerdict(rec.answer, rec.question);
-      if (v) rec.verdict = v;
+      // Verdicts aren't set here: they're confirmed by a person in Complete records.
       const k = norm(question);
       const match = state.items.length ? await matchText(`${question} ${rec.answer}`) : null;
       if (!rec.topic) rec.topic = s.suggest && match && match.score >= idx.threshold ? match.item.topic : 'General Operations';

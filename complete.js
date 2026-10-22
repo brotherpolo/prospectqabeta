@@ -97,8 +97,9 @@ function callGroups() {
     if (i.callId || i.kind === 'feedback') continue;
     const company = i.company || '';
     const contact = i.contact || splitAsker(i.askedBy).person;
-    const key = `${company}|${contact}`;
-    const g = groups.get(key) || { key, company, contact, ids: [], reps: new Set() };
+    // Imported questions may already have a date: same account, contact and date = one call.
+    const key = `${company}|${contact}|${i.askedAt || ''}`;
+    const g = groups.get(key) || { key, company, contact, date: i.askedAt || '', ids: [], reps: new Set() };
     g.ids.push(i.id);
     repNames(i.answeredBy).forEach((r) => r !== 'Unassigned' && g.reps.add(r));
     groups.set(key, g);
@@ -160,7 +161,7 @@ export function update() {
       <section class="card cr-step ${step === 2 ? 'step-current' : ''}">
         <div class="card-head"><h2 class="card-title">2 · When were they asked?</h2><span class="field-hint">One date per conversation creates a call. Approximate is fine.</span></div>
         ${calls.length ? `<div class="date-grid">${calls.map((g) => {
-          const v = ui.dates[g.key] || {};
+          const v = { date: g.date, ...(ui.dates[g.key] || {}) };
           return `<div class="date-card" data-group="${esc(g.key)}">
             <span><strong>${esc(g.company || g.contact)}</strong>${g.company && g.contact ? ` · ${esc(g.contact)}` : ''} · ${pluralize(g.ids.length, 'question')}</span>
             <label class="mini-field">Date<input class="input input-sm" type="date" data-d="date" value="${esc(v.date || '')}"></label>
@@ -275,8 +276,8 @@ async function onClick(e) {
       toast(missing ? `Saved. ${pluralize(missing, 'row')} without an account ${missing === 1 ? 'was' : 'were'} left as they are.` : 'Accounts saved');
     }
   } else if (act === 'apply-dates') {
-    const groups = callGroups().filter((g) => ui.dates[g.key]?.date).map((g) => ({
-      callId: uid('call'), ids: g.ids, date: ui.dates[g.key].date, type: ui.dates[g.key].type || 'Not recorded',
+    const groups = callGroups().filter((g) => ui.dates[g.key]?.date || g.date).map((g) => ({
+      callId: uid('call'), ids: g.ids, date: ui.dates[g.key]?.date || g.date, type: ui.dates[g.key]?.type || 'Not recorded',
       company: g.company, contact: g.contact, rep: [...g.reps].join(', '),
     }));
     if (!groups.length) { toast('Add a date to at least one group first.'); return; }
