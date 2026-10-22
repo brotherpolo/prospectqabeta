@@ -163,6 +163,8 @@ function notices({ p, undated, accounts, mode, sem }) {
         : state.config.semanticMatching === false ? 'Smart matching is off, so themes use word matching. Turn it on in Matching rules.' : '';
     if (msg) out.push(`<div class="notice">${esc(msg)}</div>`);
   }
+  const examples = (state.config.matchCheck || []).length;
+  if (mode === 'meaning' && examples < 30) out.push(`<div class="notice">Matching has been checked against ${pluralize(examples, 'labeled example')}. <a href="#/calibrate">Calibrate it</a>: about 10 minutes of “same question / same topic / unrelated” taps makes themes and duplicate warnings more accurate.</div>`);
   if (undated && p !== 'all') out.push(`<div class="notice">${pluralize(undated, 'question')} ${undated === 1 ? 'has' : 'have'} no date yet, so ${undated === 1 ? 'it only appears' : 'they only appear'} under All time. <a href="#/complete">Complete records</a></div>`);
   if (accounts < 5) out.push(`<div class="notice">Early days: ${pluralize(accounts, 'account')} so far. Trends become meaningful as more calls are logged. Themes are ranked by how many accounts ask, so one talkative prospect can’t dominate.</div>`);
   return out.join('');

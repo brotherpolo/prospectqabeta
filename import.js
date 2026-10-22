@@ -107,7 +107,7 @@ export function openImportDialog() {
     const col = (f) => s.map.indexOf(f);
     const ci = Object.fromEntries(FIELDS.map(([f]) => [f, col(f)]));
     const idx = getIndex();
-    const closeAt = idx.mode === 'meaning' ? Math.max(state.config.semanticThreshold + 20, 70) : Math.max(state.config.matchThreshold, 50);
+    const closeAt = idx.sameThreshold; // "same question" bar, set in Matching rules or by calibration
     const norm = (q) => q.toLowerCase().replace(/[“”"]/g, '"').replace(/[‘’']/g, "'").replace(/\s+/g, ' ').trim();
     const existing = new Set(state.items.map((i) => norm(i.question)));
     const seen = new Set();

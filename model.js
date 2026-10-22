@@ -106,7 +106,7 @@ export function verdictMix(items) {
  */
 export function conflictPairs(items) {
   const idx = getIndex();
-  const near = Math.max(idx.threshold + 25, 70); // "the same question", not just the same topic
+  const near = idx.sameThreshold; // "the same question", not just the same topic
   const out = [];
   for (const a of items) {
     if (a.verdict !== 'no') continue;
@@ -192,3 +192,36 @@ export function themeTagHTML(item, { short = false } = {}) {
   return `<span class="theme-tag" style="--tc:${themeHex(t)}" title="Theme: ${escAttr(t.name)}"><i aria-hidden="true"></i>${escAttr(name)}</span>`;
 }
 const escAttr = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+// ---------- Calibration ----------
+export const LABELS = {
+  same: { label: 'Same question', hint: 'Asking for the same thing. One answer would serve both.' },
+  topic: { label: 'Same topic', hint: 'Related area, but a different question.' },
+  unrelated: { label: 'Unrelated', hint: 'Different subjects.' },
+};
+
+/**
+ * Pick the threshold that sorts labeled examples best. Among equally good thresholds it leans
+ * strict (60% of the way up the best range): a missed match is cheaper than a wrong one.
+ */
+export function fitThreshold(pos, neg, lo = 20, hi = 90) {
+  if (!pos.length || !neg.length) return null;
+  let best = -1, range = [];
+  for (let t = lo; t <= hi; t++) {
+    const c = pos.filter((s) => s >= t).length + neg.filter((s) => s < t).length;
+    if (c > best) { best = c; range = [t]; } else if (c === best) range.push(t);
+  }
+  const t = range[Math.floor((range.length - 1) * 0.6)];
+  return { t, correct: best, total: pos.length + neg.length };
+}
+
+export const accuracyAt = (pos, neg, t) =>
+  (pos.length + neg.length) ? (pos.filter((s) => s >= t).length + neg.filter((s) => s < t).length) / (pos.length + neg.length) : null;
+
+/** Labeled pairs that still exist, with current scores. */
+export function scoredLabels() {
+  const idx = getIndex();
+  const ids = new Set(state.items.map((i) => i.id));
+  return (state.config.matchCheck || []).filter((p) => ids.has(p.a) && ids.has(p.b))
+    .map((p) => ({ ...p, score: idx.compare(p.a, p.b).score }));
+}

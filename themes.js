@@ -180,12 +180,12 @@ function paintAdd() {
       .slice(0, 10).map((i) => ({ i, score: null }));
   } else {
     const idx = getIndex();
-    const floor = Math.max(idx.threshold - 8, 20);
+    const floor = Math.max(idx.themeThreshold - 8, 20);
     rows = state.items.filter((i) => isQuestion(i) && !inTheme.has(i.id))
-      .map((i) => ({ i, score: Math.max(0, ...t.ids.map((m) => idx.compare(m, i.id).score)) }))
+      .map((i) => ({ i, score: idx.themeFit(i.id, t.id) }))
       .filter((r) => r.score >= floor).sort((a, b) => b.score - a.score).slice(0, 6);
   }
-  el.innerHTML = `${!q ? `<p class="field-hint" style="margin:10px 0 6px">${rows.length ? 'Likely belongs here, by closest match to this theme’s questions:' : 'No other questions look closely related. Search to add any question.'}</p>` : ''}
+  el.innerHTML = `${!q ? `<p class="field-hint" style="margin:10px 0 6px">${rows.length ? 'Likely belongs here, judged against the whole theme:' : 'No other questions look closely related. Search to add any question.'}</p>` : ''}
     <div class="member-list">${rows.map(({ i, score }) => `
       <div class="member">
         <div class="member-body">

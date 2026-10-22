@@ -86,7 +86,12 @@ export function createIndex(items, cfg, vectors = null) {
   const byId = new Map(items.map((it) => [it.id, it]));
   const semantic = !!(vectors && vectors.size);
   const mode = semantic ? 'meaning' : 'words';
-  const threshold = semantic ? (cfg.semanticThreshold ?? 45) : (cfg.matchThreshold ?? 35);
+  const threshold = semantic ? (cfg.semanticThreshold ?? 42) : (cfg.matchThreshold ?? 35);
+  // "Same question" is a higher bar than "same topic": it drives duplicate warnings and conflict flags.
+  const sameThreshold = semantic ? (cfg.sameThreshold ?? 70) : (cfg.sameWordThreshold ?? 60);
+  // Fitting a question to an existing theme blends its closest member with the theme's average.
+  // On your data that found every held-out member at a bar ~6 points above the grouping threshold.
+  const themeThreshold = semantic ? threshold + 6 : threshold;
   const pairCache = new Map();
   let pairs = null;
   let groups = null;
@@ -188,5 +193,42 @@ export function createIndex(items, cfg, vectors = null) {
     return best;
   }
 
-  return { compare, allPairs, groups: getGroups, similarTo, bestMatch, bestMatchByVector, tokens, mode, threshold };
+  // ---------- Theme fit ----------
+  const membersOf = (themeId, exclude) => items.filter((i) => i.themeId === themeId && i.id !== exclude);
+
+  /** How well a question (by id) or a vector fits a theme, 0–100. */
+  function themeFit(idOrVec, themeId) {
+    const isId = typeof idOrVec === 'number';
+    const members = membersOf(themeId, isId ? idOrVec : null);
+    if (!members.length) return 0;
+    if (semantic) {
+      const v = isId ? vectors.get(idOrVec) : idOrVec;
+      if (!v) return 0;
+      const vs = members.map((m) => vectors.get(m.id)).filter(Boolean);
+      if (!vs.length) return 0;
+      const near = Math.max(...vs.map((m) => dot(v, m)));
+      const c = new Float32Array(v.length);
+      vs.forEach((m) => { for (let i = 0; i < m.length; i++) c[i] += m[i]; });
+      const norm = Math.hypot(...c) || 1;
+      const cen = dot(v, c) / norm;
+      return Math.max(0, Math.round(((near + cen) / 2) * 100));
+    }
+    if (!isId) return 0;
+    return Math.max(...members.map((m) => compare(idOrVec, m.id).score));
+  }
+
+  /** Best-fitting existing theme for a question or vector: { themeId, score } or null. */
+  function bestTheme(idOrVec, themeIds) {
+    let best = null;
+    for (const t of themeIds) {
+      const score = themeFit(idOrVec, t);
+      if (!best || score > best.score) best = { themeId: t, score };
+    }
+    return best;
+  }
+
+  return {
+    compare, allPairs, groups: getGroups, similarTo, bestMatch, bestMatchByVector, tokens,
+    mode, threshold, sameThreshold, themeThreshold, themeFit, bestTheme,
+  };
 }

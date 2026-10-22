@@ -1,7 +1,7 @@
 // Log a call: enter call details once, then add questions quickly.
 // Theme, verdict and follow-ups are suggested as you type; you can change any of them.
 
-import { state, logCall, matchText, getIndex, companyOf, contactOf } from './store.js';
+import { state, logCall, matchText, matchTheme, getIndex, companyOf, contactOf } from './store.js';
 import { VERDICTS, suggestVerdict, detectFollowUp } from './model.js';
 import { openDialog, toast, toastError } from './ui.js';
 import { esc, icon, debounce, todayISO, addDaysISO, uid, repNames } from './utils.js';
@@ -122,12 +122,19 @@ export function openLogCall(callId = null, { onSaved } = {}) {
     }
     const text = `${r.question} ${r.answer}`.trim();
     if (r.question.trim().length >= 12) {
+      const idx = getIndex();
+      const fit = await matchTheme(text);
       const m = await matchText(text, (it) => it.kind !== 'feedback');
-      const th = getIndex().threshold;
-      if (m && m.score >= th) {
-        r.suggestion = m.item.themeId && state.config.themes.some((t) => t.id === m.item.themeId)
-          ? { score: m.score, themeId: m.item.themeId } : { score: m.score, newWith: m.item };
-        if (!r.themeTouched) r.theme = r.suggestion.themeId ? `t:${r.suggestion.themeId}` : `n:${m.item.id}`;
+      if (fit && fit.score >= idx.themeThreshold) {
+        // Fits an existing theme (judged against the whole theme, not one question).
+        r.suggestion = { score: fit.score, themeId: fit.themeId };
+        if (!r.themeTouched) r.theme = `t:${fit.themeId}`;
+        const peer = state.items.find((i) => i.themeId === fit.themeId);
+        if (!r.topicTouched && peer) r.topic = peer.topic;
+      } else if (m && m.score >= idx.threshold && !m.item.themeId) {
+        // Close to a question that has no theme yet: offer a new theme with it.
+        r.suggestion = { score: m.score, newWith: m.item };
+        if (!r.themeTouched) r.theme = `n:${m.item.id}`;
         if (!r.topicTouched) r.topic = m.item.topic;
       } else {
         r.suggestion = null;

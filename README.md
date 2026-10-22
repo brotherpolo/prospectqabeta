@@ -25,12 +25,13 @@ A build-free web app. Every file sits in one folder next to `index.html`, so it 
 | `logcall.js` | The **Log a call** dialog |
 | `complete.js` | **Complete records** for older questions |
 | `rules.js` | **Matching rules** and the matching check |
+| `calibrate.js` | **Calibrate matching**: the labeling deck that tunes both thresholds |
 | `dialogs.js`, `import.js`, `ui.js`, `utils.js` | Dialogs, Excel/CSV and Salesforce import, shared helpers |
 | `seed.js` | Starter data, used only if the dataset is empty |
 
 ## Uploading
 
-Upload **all** files to the repo root, replacing the old ones. Nine files are new: `themes.js`, `model.js`, `semantic.js`,
+Upload **all** files to the repo root, replacing the old ones. Ten files are new: `calibrate.js`, `themes.js`, `model.js`, `semantic.js`,
 `semantic-worker.js`, `overview.js`, `reps.js`, `calls.js`, `logcall.js` and `complete.js`.
 Then hard-refresh (Ctrl+Shift+R).
 
@@ -59,6 +60,21 @@ If a file is missing, the page names it instead of showing “Loading…”.
   - word matching found 0 of the 9
 - **The matching check gets more reliable over time.** Matching rules shows the check live. Each Review decision adds a pair to it, and once there are 30 or more, it can recommend a threshold.
 
+## Calibrating matching
+
+The app uses two thresholds:
+
+| Threshold | Default | Used for |
+|---|---|---|
+| **Same topic** | 42% | grouping questions into themes and suggesting them for review |
+| **Same question** | 70% | duplicate warnings, import close matches and conflict flags |
+
+**Calibrate matching** (under Settings) shows 20 pairs the app is least sure about, chosen near either threshold:
+- **Answering:** tap **Same question**, **Same topic** or **Unrelated**, or press 1, 2 or 3. Press S to skip and Backspace to go back. Scores stay hidden so they don't sway you.
+- **Recommendations:** after each deck, the app suggests a better threshold once there are enough examples. It needs 10 related and 10 unrelated for themes, and 5 "same question" and 10 others for duplicates. Recommendations lean strict, because a missed match is cheaper than a wrong one.
+- **Reviewing your labels:** every example appears in Matching rules › Matching check, scored live. You can change or remove each one.
+- **Fitting to themes:** a new question is compared against the whole theme, using a blend of its closest member and the theme's average. On your data that found 30 of 30 held-out theme members, against 26 of 30 for closest-question alone. Theme suggestions use a bar 6 points above the same-topic threshold.
+
 ## How the numbers work
 
 - **Accounts, not questions, rank themes and trends.** One talkative prospect can't dominate.
@@ -66,6 +82,15 @@ If a file is missing, the page names it instead of showing “Loading…”.
 - **A conflict means two nearly identical questions with opposite answers.** That's a 70%+ match, one answer marked No and the other Yes or Partial. Different questions in the same theme can legitimately have different answers.
 - **Repeat rate** is the share of questions whose theme already had an earlier question.
 - **Questions without a date appear only under All time.** The Overview opens on All time until most questions have dates.
+
+## Library: row size and bulk actions
+
+- **Comfortable or Compact** (above the results): Compact shows one line per question, with its theme tag, category, verdict and approval. Each browser remembers the choice.
+- **Sort by** newest or oldest, number (high to low or low to high), category, theme, account or rep. Theme sort puts questions without a theme last.
+- **Tick questions to act on several at once:**
+  - **Shift+click** ticks a range.
+  - **The box above the list** ticks everything matching your current search and filters.
+- **The action bar** offers Move to theme (including New theme… and Remove from theme), Change category (including New category…) and Delete. Each one can be undone right after, and the ticks clear afterwards so the next batch starts fresh.
 
 ## Editing themes
 
@@ -78,6 +103,12 @@ If a file is missing, the page names it instead of showing “Loading…”.
   - merge it into another theme, or delete it
 - **Delete keeps the questions;** they just leave the theme. Removing, moving, merging and deleting can all be undone right after.
 - **Each question in the Library has a Theme picker,** so you can move it, start a new theme with it, or remove it, without leaving the Library.
+- **Each theme has a color, set on the Themes screen from 16 options.** That color appears everywhere the theme's questions do:
+  - a tag and a left edge on Library rows
+  - a dot in the theme picker, on the Themes list and on the Overview
+  - a top border on Review cards
+
+  New themes get the next unused color automatically, spaced out so early themes are easy to tell apart. The theme name always appears next to its color. The palette leaves out pure red, which means "needs attention" elsewhere in the app.
 - **Every add or remove is also a matching example.** It's added to the matching check, so tuning gets better as you curate.
 
 ## Deleting and starting fresh
@@ -93,6 +124,13 @@ If a file is missing, the page names it instead of showing “Loading…”.
 - **Older questions keep working without the new fields.**
 - **Retire the original app once you switch.** It saves the whole dataset at once and can overwrite edits made here.
 - **Firestore caps a document at 1 MB.** Expect room for roughly 1,500–2,000 questions. Phase 2 moves to one document per question.
+
+## Phones
+
+- **Every screen fits the phone's width,** with no sideways scrolling and no zooming out.
+- **Text fields and dropdowns use 16px text,** so iPhones don't zoom in when you tap them. Pinch-to-zoom still works if you want it.
+- **Dialogs open full screen,** with their buttons pinned to the bottom so the keyboard can't hide them.
+- **Wide tables, like the interest map, scroll sideways inside their own box.**
 
 ## Keyboard shortcuts
 

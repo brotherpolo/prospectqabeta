@@ -126,7 +126,7 @@ export function openQuestionDialog(id = null, { onSaved, defaults = {} } = {}) {
         const text = q.value.trim();
         if (text.length < 12) { dup.textContent = ''; return; }
         const m = await matchText(`${text} ${a.value}`, (it) => it.id !== rec?.id);
-        const th = getIndex().mode === 'meaning' ? Math.max(state.config.semanticThreshold, 55) : Math.max(state.config.matchThreshold, 45);
+        const th = getIndex().sameThreshold;
         if (m && m.score >= th) {
           dup.innerHTML = `Similar to <a href="#/library/${m.item.id}" data-close>#${m.item.id}</a> (${m.score}%): ${esc(m.item.question)}`;
         } else dup.textContent = '';
@@ -270,6 +270,7 @@ export function openMoreDialog(actions) {
       <a class="nav-link" href="#/calls" data-close>${icon('calendar')}Calls</a>
       <a class="nav-link" href="#/complete" data-close>${icon('flag')}Complete records</a>
       <a class="nav-link" href="#/rules" data-close>${icon('sliders')}Matching rules</a>
+      <a class="nav-link" href="#/calibrate" data-close>${icon('check')}Calibrate matching</a>
       <button class="nav-link" type="button" data-act="import">${icon('upload')}Import</button>
       <button class="nav-link" type="button" data-act="categories">${icon('tag')}Categories</button>
       <button class="nav-link" type="button" data-act="palette">${icon('search')}Quick find</button>

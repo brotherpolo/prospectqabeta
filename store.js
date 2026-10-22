@@ -22,6 +22,8 @@ export const DEFAULT_CONFIG = Object.freeze({
   minShared: 2,
   semanticMatching: true,
   semanticThreshold: 42,
+  sameThreshold: 70,
+  sameWordThreshold: 60,
   ignoreWords: ['Novara Flex', 'Novara', 'Flex'],
   customRules: [
     { id: 1, text: 'Flag answers under word threshold for brevity review', enabled: true },
@@ -134,6 +136,8 @@ function apply(data) {
     const ids = new Set(state.items.map((i) => i.id));
     state.config.matchCheck = DEFAULT_CHECK.filter(([a, b]) => ids.has(a) && ids.has(b)).map(([a, b, related]) => ({ a, b, related }));
   }
+  // Labels: "same" (same question), "topic" (same topic, different question), "unrelated".
+  state.config.matchCheck = state.config.matchCheck.map((p) => ({ ...p, label: p.label || (p.related ? 'topic' : 'unrelated') }));
   index = null;
   refreshVectors();
 }
@@ -547,8 +551,42 @@ function addCheckPairs(d, ids, related) {
   for (let i = 1; i < ids.length; i++) {
     const a = ids[0], b = ids[i];
     cfg.matchCheck = cfg.matchCheck.filter((p) => !((p.a === a && p.b === b) || (p.a === b && p.b === a)));
-    cfg.matchCheck.push({ a, b, related, from: 'review' });
+    cfg.matchCheck.push({ a, b, related, label: related ? 'topic' : 'unrelated', from: 'review' });
   }
+}
+
+/** Record a matching example: "same", "topic" or "unrelated". */
+export function labelPair(a, b, label, from = 'calibration') {
+  const by = userLabel();
+  return mutate((d) => {
+    const cfg = cfgOf(d);
+    if (!Array.isArray(cfg.matchCheck)) cfg.matchCheck = structuredClone(state.config.matchCheck || []);
+    cfg.matchCheck = cfg.matchCheck.filter((p) => !((p.a === a && p.b === b) || (p.a === b && p.b === a)));
+    cfg.matchCheck.push({ a, b, label, related: label !== 'unrelated', from, at: now(), by });
+  });
+}
+
+export function unlabelPair(a, b) {
+  return mutate((d) => {
+    const cfg = cfgOf(d);
+    if (!Array.isArray(cfg.matchCheck)) cfg.matchCheck = structuredClone(state.config.matchCheck || []);
+    cfg.matchCheck = cfg.matchCheck.filter((p) => !((p.a === a && p.b === b) || (p.a === b && p.b === a)));
+  });
+}
+
+/** Best existing theme for free text (by meaning when available). */
+export async function matchTheme(text) {
+  const idx = getIndex();
+  const ids = state.config.themes.map((t) => t.id).filter((id) => state.items.some((i) => i.themeId === id));
+  if (!ids.length) return null;
+  if (idx.mode === 'meaning') {
+    try {
+      const v = await semantic.embedText(text, state.items, state.config);
+      return idx.bestTheme(v, ids);
+    } catch { /* fall back to words */ }
+  }
+  const m = idx.bestMatch(text);
+  return m && m.item.themeId ? { themeId: m.item.themeId, score: m.score } : null;
 }
 
 export function dismissGroup(group) {

@@ -909,3 +909,39 @@ a.heat-cell:hover { outline: 2px solid var(--ink); outline-offset: -2px; }
 @media (hover: none) and (pointer: coarse) {
   .dlg-foot > .field-hint:first-child, .q-rows + .btn + .field-hint { display: none; }
 }
+
+/* Calibration deck */
+.calib-progress { display: flex; align-items: center; gap: 12px; font-size: 13px; }
+.calib-progress .bar-track { flex: 1; height: 6px; }
+.calib-card { display: flex; flex-direction: column; gap: 16px; }
+.calib-pair { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 14px; align-items: stretch; }
+.calib-vs { align-self: center; font-size: 12px; font-weight: 600; color: var(--faint); }
+.calib-q { border: 1px solid var(--line-soft); border-radius: var(--radius); padding: 14px; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; background: var(--surface-2); }
+.calib-q strong { font-size: 15px; line-height: 1.4; }
+.calib-q p { font-size: 14px; line-height: 1.5; color: var(--ink-2); }
+.calib-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.calib-btn { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; text-align: left; padding: 12px 14px; border-radius: var(--radius); border: 1px solid var(--line-strong); background: var(--surface); min-height: 64px; }
+.calib-btn strong { font-size: 15px; display: flex; align-items: center; gap: 8px; }
+.calib-btn span:not(.kbd) { font-size: 12px; color: var(--muted); }
+.calib-btn:hover { border-color: var(--ink); }
+.calib-same { border-color: var(--accent); }
+.calib-same:hover { background: var(--accent-row); }
+.calib-foot { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13px; }
+.calib-rec { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 12px 0; border-top: 1px solid var(--line-soft); font-size: 14px; }
+.calib-rec strong { flex: 1 1 100%; }
+.check-line { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; padding: 6px 0; }
+@media (max-width: 760px) {
+  .calib-pair { grid-template-columns: minmax(0, 1fr); }
+  .calib-vs { justify-self: center; }
+  .calib-actions { grid-template-columns: minmax(0, 1fr); }
+  .calib-btn { min-height: 56px; }
+}
+@media (max-width: 760px) {
+  .calib-actions { position: sticky; bottom: calc(66px + env(safe-area-inset-bottom, 0px)); z-index: 5; grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px; background: var(--surface); padding: 8px 0 4px; margin: 0 -2px; }
+  .calib-btn { min-height: 52px; padding: 8px; align-items: center; text-align: center; justify-content: center; }
+  .calib-btn strong { font-size: 14px; }
+  .calib-btn span:not(.kbd) { display: none; }
+  .calib-card::after { content: "Same question: one answer would serve both. Same topic: related, but a different question."; font-size: 12px; color: var(--muted); order: 3; }
+  .calib-foot { order: 4; }
+}

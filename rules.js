@@ -1,6 +1,7 @@
 // Matching rules: how related questions are found, checked against an answer key from your own data.
 
-import { state, updateConfig, DEFAULT_CONFIG, getItem, currentVectors, semanticStatus } from './store.js';
+import { state, updateConfig, DEFAULT_CONFIG, getItem, currentVectors, semanticStatus, labelPair } from './store.js';
+import { LABELS, fitThreshold, accuracyAt } from './model.js';
 import { createIndex } from './similarity.js';
 import { toast, toastError } from './ui.js';
 import { esc, icon, debounce, pluralize } from './utils.js';
@@ -10,7 +11,8 @@ let draft = {};
 
 const WORD_SLIDERS = [
   { key: 'overlapRatio', label: 'Overlap weight', min: 0, max: 100, unit: '%', hint: 'How much a short question being covered by a longer one counts. Jaccard (shared vocabulary) gets the rest.' },
-  { key: 'matchThreshold', label: 'Word match threshold', min: 15, max: 80, unit: '%', hint: 'Used only when smart matching is off or still loading.' },
+  { key: 'matchThreshold', label: 'Same topic at (words)', min: 15, max: 80, unit: '%', hint: 'Used only when smart matching is off or still loading.' },
+  { key: 'sameWordThreshold', label: 'Same question at (words)', min: 30, max: 95, unit: '%', hint: 'Duplicate warnings and conflicts when matching by words.' },
   { key: 'minShared', label: 'Minimum shared words', min: 1, max: 4, unit: '', hint: 'Stops short questions from matching on a single common word.' },
 ];
 
@@ -34,9 +36,14 @@ export function mount(el) {
             <label class="radio-line"><input type="checkbox" class="switch" data-toggle-sem>Match questions by meaning</label>
             <p class="field-hint">An open AI model (all-MiniLM-L6-v2) runs in your browser, so questions never leave it. It downloads once (about 23 MB) and is cached. Account, contact and rep names are removed first, so questions don’t match just because they mention the same prospect.</p>
             <div class="range-field">
-              <div class="range-top"><label for="r-semanticThreshold">Related at</label><output id="o-semanticThreshold"></output></div>
+              <div class="range-top"><label for="r-semanticThreshold">Same topic at</label><output id="o-semanticThreshold"></output></div>
               <input type="range" id="r-semanticThreshold" data-key="semanticThreshold" min="25" max="75" step="1">
-              <p class="field-hint">Questions scoring at or above this are grouped into themes and suggested for review. Check the effect in Matching check.</p>
+              <p class="field-hint">Questions scoring at or above this are grouped into themes and suggested for review.</p>
+            </div>
+            <div class="range-field">
+              <div class="range-top"><label for="r-sameThreshold">Same question at</label><output id="o-sameThreshold"></output></div>
+              <input type="range" id="r-sameThreshold" data-key="sameThreshold" min="45" max="95" step="1">
+              <p class="field-hint">A higher bar for “asking the same thing”: drives duplicate warnings, import close matches and conflict flags.</p>
             </div>
             <div class="range-field">
               <div class="range-top"><label for="r-shortWordThreshold">Brief answer threshold</label><output id="o-shortWordThreshold"></output></div>
@@ -55,7 +62,8 @@ export function mount(el) {
           </section>
 
           <section class="card">
-            <div class="card-head"><h2 class="card-title">Matching check</h2><span class="field-hint">Pairs you’ve marked related or not, scored now</span></div>
+            <div class="card-head"><h2 class="card-title">Matching check</h2><a class="btn btn-sm btn-primary" href="#/calibrate">Calibrate</a></div>
+            <p class="field-hint" style="margin-bottom:10px">Examples you’ve labeled, scored with the current settings. Calibrate adds the most useful ones: pairs the app is least sure about.</p>
             <div class="preview-box" data-check-summary aria-live="polite"></div>
             <div class="table-wrap"><table class="table check-table" data-check></table></div>
             <form class="add-row" data-form="pair" style="margin-top:12px">
@@ -64,10 +72,10 @@ export function mount(el) {
               <label class="visually-hidden" for="pair-b">Second question number</label>
               <input class="input" id="pair-b" placeholder="#" inputmode="numeric" style="max-width:80px">
               <label class="visually-hidden" for="pair-rel">Are they related?</label>
-              <select class="select" id="pair-rel" style="max-width:160px"><option value="1">Related</option><option value="0">Not related</option></select>
+              <select class="select" id="pair-rel" style="max-width:170px">${Object.entries(LABELS).map(([k, v]) => `<option value="${k}">${v.label}</option>`).join('')}</select>
               <button class="btn" type="submit">${icon('plus', 'icon-sm')}Add pair</button>
             </form>
-            <p class="field-hint" style="margin-top:8px">Decisions in Review add pairs automatically: approving or linking marks them related, dismissing marks them not related.</p>
+            <p class="field-hint" style="margin-top:8px">Decisions in Review and Themes add examples too: approving, linking or adding to a theme counts as same topic; dismissing or removing counts as unrelated.</p>
           </section>
         </div>
 
@@ -122,12 +130,16 @@ export function mount(el) {
   el.onsubmit = onSubmit;
   el.onchange = (e) => {
     if (e.target.matches('[data-toggle-sem]')) updateConfig({ semanticMatching: e.target.checked });
+    if (e.target.matches('[data-relabel]')) {
+      const [a, b] = e.target.dataset.relabel.split('-').map(Number);
+      labelPair(a, b, e.target.value, 'manual').then((ok) => ok && toast('Label updated'));
+    }
   };
   update();
 }
 
 const cfg = () => ({ ...state.config, ...draft });
-const ALL_KEYS = ['semanticThreshold', 'shortWordThreshold', ...WORD_SLIDERS.map((s) => s.key)];
+const ALL_KEYS = ['semanticThreshold', 'sameThreshold', 'shortWordThreshold', ...WORD_SLIDERS.map((s) => s.key)];
 
 function paintSliders() {
   const c = cfg();
@@ -140,46 +152,49 @@ function paintSliders() {
   }
 }
 
-/** Score the answer key at the current settings and recommend a threshold. */
+/** Score every labeled example with the current settings; recommend thresholds once there are enough. */
 const paintCheck = debounce(() => {
   if (!root) return;
   const c = cfg();
-  const vectors = currentVectors();
-  const idx = createIndex(state.items, c, vectors);
+  const idx = createIndex(state.items.filter((i) => i.kind !== 'feedback'), c, currentVectors());
   const pairs = (state.config.matchCheck || []).filter((p) => getItem(p.a) && getItem(p.b));
   const scored = pairs.map((p) => ({ ...p, score: idx.compare(p.a, p.b).score }));
-  const th = idx.threshold;
-  const rel = scored.filter((p) => p.related), unrel = scored.filter((p) => !p.related);
-  const tp = rel.filter((p) => p.score >= th).length, fp = unrel.filter((p) => p.score >= th).length;
-
-  let rec = null;
-  if (rel.length && unrel.length) {
-    const lo = idx.mode === 'meaning' ? 25 : 15, hi = idx.mode === 'meaning' ? 75 : 80;
-    let best = -1; let range = [];
-    for (let t = lo; t <= hi; t++) {
-      const correct = rel.filter((p) => p.score >= t).length + unrel.filter((p) => p.score < t).length;
-      if (correct > best) { best = correct; range = [t]; } else if (correct === best) range.push(t);
-    }
-    rec = Math.max(range[range.length - 1], th - 5); // strictest best fit, moving at most 5 points at a time
-  }
+  const thT = idx.threshold, thS = idx.sameThreshold;
+  const sc = (f) => scored.filter(f).map((p) => p.score);
+  const tPos = sc((p) => p.label !== 'unrelated'), tNeg = sc((p) => p.label === 'unrelated');
+  const sPos = sc((p) => p.label === 'same'), sNeg = sc((p) => p.label !== 'same');
+  const meaning = idx.mode === 'meaning';
+  const pct = (x) => (x == null ? '–' : `${Math.round(x * 100)}%`);
+  const recT = tPos.length >= 10 && tNeg.length >= 10 ? fitThreshold(tPos, tNeg) : null;
+  const recS = sPos.length >= 5 && sNeg.length >= 10 ? fitThreshold(sPos, sNeg) : null;
+  const line = (name, th, pos, neg, rec, key, need) => `
+    <div class="check-line"><span><strong>${name} at ${th}%</strong>: finds ${pos.filter((x) => x >= th).length} of ${pos.length}, wrongly includes ${neg.filter((x) => x >= th).length} of ${neg.length} (${pct(accuracyAt(pos, neg, th))} right).</span>
+      ${rec ? (rec.t !== th ? `<button type="button" class="btn btn-sm" data-act="use-rec" data-key="${key}" data-rec="${rec.t}">Use ${rec.t}% (${pct(rec.correct / rec.total)})</button>` : '<span class="ok-text">✓ Best fit</span>')
+        : `<span class="field-hint">${need}</span>`}</div>`;
   const groups = idx.groups();
   root.querySelector('[data-check-summary]').innerHTML = scored.length ? `
-    Matching by <strong>${idx.mode === 'meaning' ? 'meaning' : 'shared words'}</strong> at ${th}%:
-    finds <strong>${tp} of ${rel.length}</strong> related pairs and wrongly matches <strong>${fp} of ${unrel.length}</strong> unrelated ones.
-    Groups ${pluralize(groups.reduce((s, g) => s + g.ids.length, 0), 'question')} into ${pluralize(groups.length, 'theme')}.
-    ${scored.length < 30
-      ? `<div class="field-hint" style="margin-top:6px">${pluralize(scored.length, 'pair')} is too few to tune the threshold reliably. Decisions in Review add pairs; a recommendation appears at 30.</div>`
-      : rec != null && rec !== th ? `<div style="margin-top:8px"><button type="button" class="btn btn-sm" data-act="use-rec" data-rec="${rec}">Use ${rec}%, the best fit for these ${scored.length} pairs</button></div>`
-        : rec != null ? '<div class="ok-text" style="margin-top:6px">✓ This is the best-fitting threshold for your answer key.</div>' : ''}`
-    : 'No pairs yet. Add a few you know are related or unrelated, or make decisions in Review.';
+    <p>Matching by <strong>${meaning ? 'meaning' : 'shared words'}</strong> · ${pluralize(scored.length, 'example')} · ${pluralize(groups.length, 'suggested group')}</p>
+    ${line('Same topic', thT, tPos, tNeg, recT, meaning ? 'semanticThreshold' : 'matchThreshold', `Tuning needs 10 related and 10 unrelated (${tPos.length}/${tNeg.length}).`)}
+    ${line('Same question', thS, sPos, sNeg, recS, meaning ? 'sameThreshold' : 'sameWordThreshold', `Tuning needs 5 “same question” and 10 others (${sPos.length}/${sNeg.length}).`)}`
+    : 'No examples yet. Calibrate to add some.';
+  const verdict = (p) => {
+    const want = p.label;
+    const got = p.score >= thS ? 'same' : p.score >= thT ? 'topic' : 'unrelated';
+    if (got === want) return ['✓ Correct', 'ok-text'];
+    if (want === 'unrelated') return [got === 'same' ? 'Flagged as duplicate' : 'Wrongly grouped', 'warn-text'];
+    if (want === 'same') return [got === 'topic' ? 'Grouped, not flagged as duplicate' : 'Missed', 'warn-text'];
+    return [got === 'same' ? 'Flagged as duplicate' : 'Missed', 'warn-text'];
+  };
   root.querySelector('[data-check]').innerHTML = scored.length ? `
-    <thead><tr><th>Questions</th><th>Marked</th><th class="num">Score</th><th>Result</th><th><span class="visually-hidden">Remove</span></th></tr></thead>
-    <tbody>${scored.map((p, n) => {
-      const ok = (p.score >= th) === p.related;
+    <thead><tr><th>Questions</th><th>Your label</th><th class="num">Score</th><th>Result</th><th><span class="visually-hidden">Remove</span></th></tr></thead>
+    <tbody>${[...scored].reverse().map((p) => {
+      const [txt, cls] = verdict(p);
       return `<tr><td><a href="#/library/${p.a}">#${p.a}</a> ${esc(getItem(p.a).question.slice(0, 60))}<br><a href="#/library/${p.b}">#${p.b}</a> ${esc(getItem(p.b).question.slice(0, 60))}</td>
-        <td>${p.related ? 'Related' : 'Not related'}</td><td class="num mono">${p.score}%</td>
-        <td class="${ok ? 'ok-text' : 'warn-text'}">${ok ? '✓ Correct' : p.related ? 'Missed' : 'Wrong match'}</td>
-        <td><button type="button" class="icon-btn" data-del-pair="${n}" aria-label="Remove this pair">${icon('trash', 'icon-sm')}</button></td></tr>`;
+        <td><label class="visually-hidden" for="lbl-${p.a}-${p.b}">Label</label><select class="select select-inline" id="lbl-${p.a}-${p.b}" data-relabel="${p.a}-${p.b}">
+          ${Object.entries(LABELS).map(([k, v]) => `<option value="${k}" ${k === p.label ? 'selected' : ''}>${v.label}</option>`).join('')}</select></td>
+        <td class="num mono">${p.score}%</td>
+        <td class="${cls}">${txt}</td>
+        <td><button type="button" class="icon-btn" data-del-pair="${p.a}-${p.b}" aria-label="Remove this example">${icon('trash', 'icon-sm')}</button></td></tr>`;
     }).join('')}</tbody>` : '';
 }, 60);
 
@@ -219,14 +234,14 @@ async function onClick(e) {
     await updateConfig({
       overlapRatio: d.overlapRatio, jaccardRatio: d.jaccardRatio, matchThreshold: d.matchThreshold, minShared: d.minShared,
       shortWordThreshold: d.shortWordThreshold, semanticThreshold: d.semanticThreshold, semanticMatching: true,
+      sameThreshold: d.sameThreshold, sameWordThreshold: d.sameWordThreshold,
     });
     toast('Settings reset to defaults');
     return;
   }
   const useRec = t.closest('[data-act="use-rec"]');
   if (useRec) {
-    const key = currentVectors() ? 'semanticThreshold' : 'matchThreshold';
-    if (await updateConfig({ [key]: Number(useRec.dataset.rec) })) toast(`Threshold set to ${useRec.dataset.rec}%`);
+    if (await updateConfig({ [useRec.dataset.key]: Number(useRec.dataset.rec) })) toast(`Threshold set to ${useRec.dataset.rec}%`);
     return;
   }
   const tog = t.closest('[data-toggle-rule]');
@@ -239,9 +254,8 @@ async function onClick(e) {
   if (di) { updateConfig({ ignoreWords: c.ignoreWords.filter((_, i) => i !== Number(di.dataset.delIgnore)) }); return; }
   const dp = t.closest('[data-del-pair]');
   if (dp) {
-    const live = (c.matchCheck || []).filter((p) => getItem(p.a) && getItem(p.b));
-    const target = live[Number(dp.dataset.delPair)];
-    updateConfig({ matchCheck: (c.matchCheck || []).filter((p) => p !== target) });
+    const [a, b] = dp.dataset.delPair.split('-').map(Number);
+    updateConfig({ matchCheck: (c.matchCheck || []).filter((p) => !(p.a === a && p.b === b)) });
   }
 }
 
@@ -273,10 +287,9 @@ async function onSubmit(e) {
     const a = Number(root.querySelector('#pair-a').value.replace('#', ''));
     const b = Number(root.querySelector('#pair-b').value.replace('#', ''));
     if (!getItem(a) || !getItem(b) || a === b) { toastError('Enter two different question numbers from the Library.'); return; }
-    const related = root.querySelector('#pair-rel').value === '1';
-    const rest = (c.matchCheck || []).filter((p) => !((p.a === a && p.b === b) || (p.a === b && p.b === a)));
+    const label = root.querySelector('#pair-rel').value;
     root.querySelector('#pair-a').value = '';
     root.querySelector('#pair-b').value = '';
-    if (await updateConfig({ matchCheck: [...rest, { a, b, related }] })) toast('Pair added to the check');
+    if (await labelPair(a, b, label, 'manual')) toast('Example added');
   }
 }
