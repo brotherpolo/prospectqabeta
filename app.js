@@ -197,7 +197,50 @@ const actions = {
   more: () => openMoreDialog(actions),
   new: () => openQuestionDialog(null, { onSaved: (id) => { location.hash = `#/library/${id}`; } }),
   log: () => openLogCall(),
+  install: () => installApp(),
+  canInstall: () => canInstall(),
 };
+
+// ---------- Install as an app (Android, iPhone, desktop) ----------
+let installPrompt = null;
+const isStandalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const canInstall = () => !isStandalone() && (!!installPrompt || isIOS);
+function paintInstall() {
+  document.querySelectorAll('[data-action="install"]').forEach((el) => { el.hidden = !canInstall(); });
+}
+window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installPrompt = e; paintInstall(); });
+window.addEventListener('appinstalled', () => { installPrompt = null; paintInstall(); toast('Installed. Open it from your home screen or app list.'); });
+
+async function installApp() {
+  if (installPrompt) {
+    installPrompt.prompt();
+    const choice = await installPrompt.userChoice.catch(() => null);
+    installPrompt = null;
+    paintInstall();
+    if (choice?.outcome === 'accepted') toast('Installing…');
+    return;
+  }
+  const iosSafari = isIOS && /Safari/.test(navigator.userAgent) && !/CriOS|FxiOS|EdgiOS/.test(navigator.userAgent);
+  openDialog({
+    title: 'Install Q&A Hub',
+    body: isIOS ? `
+      ${iosSafari ? '' : '<p class="form-error">On iPhone and iPad, apps can only be installed from <strong>Safari</strong>. Open this page in Safari first.</p>'}
+      <ol class="install-steps">
+        <li>Tap the <strong>Share</strong> button <span class="muted">(the square with an arrow, at the bottom or top of Safari)</span>.</li>
+        <li>Scroll down and tap <strong>Add to Home Screen</strong>, then <strong>Add</strong>.</li>
+        <li>Open <strong>Q&amp;A Hub</strong> from your home screen. You’ll sign in once more there; iPhone keeps installed apps separate from Safari.</li>
+      </ol>`
+      : `<p>Use your browser’s menu: <strong>Install app</strong> or <strong>Add to Home screen</strong> (Chrome and Edge), or <strong>Install</strong> in the address bar on a computer.</p>
+         <p class="muted">If you don’t see the option, the app may already be installed, or this browser doesn’t support installing.</p>`,
+    foot: '<div class="right"><button type="button" class="btn btn-primary" data-close>Got it</button></div>',
+  });
+}
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => { navigator.serviceWorker.register('./sw.js').catch((err) => console.warn('Offline support unavailable:', err)); });
+}
+setTimeout(paintInstall, 0);
 
 $('#app').addEventListener('click', (e) => {
   const b = e.target.closest('[data-action]');

@@ -276,6 +276,7 @@ export function openMoreDialog(actions) {
       <button class="nav-link" type="button" data-act="categories">${icon('tag')}Categories</button>
       <button class="nav-link" type="button" data-act="palette">${icon('search')}Quick find</button>
       <a class="nav-link" href="${PLANNER_URL}" target="_blank" rel="noopener noreferrer">${icon('calendar')}<span class="grow">PPSC Planner</span>${icon('external', 'icon-sm')}</a>
+      ${actions.canInstall?.() ? `<button class="nav-link" type="button" data-act="install">${icon('download')}Install app</button>` : ''}
       <button class="nav-link" type="button" data-act="account">${icon('user')}Account</button>
     </nav>`,
     onMount: (d) => {

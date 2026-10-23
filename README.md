@@ -31,6 +31,7 @@ A build-free web app. Every file sits in one folder next to `index.html`, so it 
 | `calibrate.js` | **Calibrate matching**: the labeling deck that tunes both thresholds |
 | `dialogs.js`, `import.js`, `ui.js`, `utils.js` | Dialogs, Excel/CSV and Salesforce import, shared helpers |
 | `seed.js` | Starter data, used only if the dataset is empty |
+| `manifest.webmanifest`, `sw.js`, `icon-*.png`, `apple-touch-icon.png` | Installing as an app, and opening offline |
 
 ## Uploading
 
@@ -143,7 +144,7 @@ Matching rules › **Model comparison** tests four open models on your labeled e
 
 - **It needs 10 related and 10 unrelated examples;** Calibrate matching adds them.
 - **Each model is scored by ranking:** how often a related pair scores above an unrelated one, where 100% is perfect and 50% is a coin toss. Ranking doesn't depend on any threshold, so it's fair across models that score on different scales. It's shown separately for typical (spot-check) and borderline pairs.
-- **A winner is only suggested** when it ranks at least 3 points better than the model in use. Smaller differences are noise.
+- **A winner is only called "noticeably better"** with 40+ spot-check pairs and a lead of 5+ points on Typical. With fewer spot-check pairs, a 5-point lead (or 3+ on borderline cases alone) is shown as **"looks promising"**, with how many more spot-check pairs to label. Anything smaller is reported as no clear winner.
 - **Switching** keeps the thresholds equally selective on the new model's scale, by matching the same percentile of question-pair scores. With 30+ examples on each side, the thresholds are fitted to your labels instead. Each model remembers its own thresholds, so switching back restores them exactly.
 - **What it found on your data:** in my own test of 32 labeled pairs, all-MiniLM-L6-v2 and bge-small-en-v1.5 were essentially tied (pair ranking 94% vs 95%), so the default is a fine choice until your own labels say otherwise.
 
@@ -197,6 +198,20 @@ Matching rules › **Model comparison** tests four open models on your labeled e
 - **Older questions keep working without the new fields.**
 - **Retire the original app once you switch.** It saves the whole dataset at once and can overwrite edits made here.
 - **Firestore caps a document at 1 MB.** Expect room for roughly 1,500–2,000 questions. Phase 2 moves to one document per question.
+
+## Installing as an app
+
+The site installs like an app on Android, iPhone, iPad and computers: it gets its own icon and opens full screen. There's no app store.
+
+| Device | How to install |
+|---|---|
+| **Android (Chrome)** | Open the site, then tap **More › Install app**, or accept Chrome's "Install" prompt. |
+| **iPhone or iPad (Safari only)** | Tap **Share › Add to Home Screen › Add**. The app's **More › Install app** shows these steps. |
+| **Computer (Chrome or Edge)** | Click **Install app** in the sidebar, or the install icon in the address bar. |
+
+- **On iPhone, sign in once more** in the installed app. iOS keeps installed apps separate from Safari, and the matching model downloads once more there too.
+- **Offline:** the installed app opens without a connection and shows the data it last synced. Saving changes still needs a connection.
+- **Updates:** the app always checks for newer files when online, so updates appear the next time it's opened, with no hard refresh needed.
 
 ## Phones
 
