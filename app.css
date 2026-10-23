@@ -1105,3 +1105,12 @@ a.heat-cell:hover { outline: 2px solid var(--ink); outline-offset: -2px; }
   .summary-top tbody tr:nth-child(n+7) { display: table-row; }
   .summary-top .table th, .summary-top .table td { padding: 4px 8px; font-size: 10.5px; }
 }
+
+/* Library: related by meaning */
+.meaning-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 10px 16px; background: var(--surface-2); border-bottom: 1px solid var(--line-soft); border-top: 1px solid var(--line); font-size: 13px; }
+.meaning-head span { color: var(--muted); font-size: 12px; }
+.meaning-score { font-family: var(--mono); font-size: 11px; font-weight: 500; padding: 1px 7px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-ink); }
+.paste-notes { border: 1px dashed var(--line-strong); border-radius: var(--radius); padding: 10px 14px; background: var(--surface-2); }
+.paste-notes summary { cursor: pointer; font-weight: 600; font-size: 14px; }
+.paste-notes[open] { display: flex; flex-direction: column; gap: 10px; }
+.paste-notes .textarea { min-height: 140px; font-family: var(--font); }

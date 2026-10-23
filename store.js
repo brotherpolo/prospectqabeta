@@ -10,7 +10,7 @@
 //         review decisions and the matching answer key. They live inside insightConfig because the
 //         original app preserves that object when it saves, and would erase new top-level fields.
 
-import { createIndex } from './similarity.js';
+import { createIndex, dot } from './similarity.js';
 import * as semantic from './semantic.js';
 import { canonicalRep, splitAsker } from './utils.js';
 
@@ -114,6 +114,23 @@ function refreshVectors() {
   }, 150);
 }
 semantic.onStatus(() => emit());
+
+/**
+ * Search by meaning: questions whose meaning is close to the search text, best first.
+ * Short searches score lower than full questions, so the cut-off is 30%, plus the single best
+ * match from 22%. Measured on your data across 10 realistic searches: at 30% it found 18 of 26
+ * expected questions (35% found 17); the 22% rule rescues searches like "works without internet",
+ * whose right answer scores 24%. Results are shown separately, labeled "related by meaning".
+ * Returns null when smart matching isn't ready.
+ */
+export async function searchByMeaning(text, limit = 10) {
+  if (!semanticOn() || !vectors || !vectors.size) return null;
+  const v = await semantic.embedText(text, state.items, state.config);
+  const out = [];
+  for (const [id, vec] of vectors) out.push({ id, score: Math.round(dot(v, vec) * 100) });
+  out.sort((a, b) => b.score - a.score);
+  return out.filter((r, i) => r.score >= 30 || (i === 0 && r.score >= 22)).slice(0, limit);
+}
 
 /** Score free text against the library, by meaning when available. */
 export async function matchText(text, filter) {

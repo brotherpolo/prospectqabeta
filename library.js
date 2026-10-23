@@ -1,6 +1,6 @@
 import {
   state, getIndex, getItem, deleteQuestion, restoreQuestion, setVerdicts, setFollowUp, removeFromTheme, addToTheme,
-  deleteQuestions, restoreQuestions, setCategory, fieldSnapshot, restoreFields, themeSnapshot, restoreThemes,
+  deleteQuestions, restoreQuestions, setCategory, fieldSnapshot, restoreFields, themeSnapshot, restoreThemes, searchByMeaning,
 } from './store.js';
 import { VERDICTS, verdictLabel, suggestVerdict, accountOf, themeIndex, repsOf, themeTagHTML, themeById, themeHex } from './model.js';
 import { openQuestionDialog } from './dialogs.js';
@@ -27,8 +27,8 @@ let sheetOpen = false;
 const needsAttention = (i) => isNoAnswer(i.answer) || wordCount(i.answer) < state.config.shortWordThreshold;
 const terms = () => ui.q.toLowerCase().split(/\s+/).filter((t) => t.length > 1);
 
-function filtered() {
-  const t = terms();
+function filtered({ ignoreText = false } = {}) {
+  const t = ignoreText ? [] : terms();
   const me = [state.user?.email, state.user?.uid].filter(Boolean);
   const tOf = themeIndex();
   let list = state.items.filter((i) => {
@@ -126,6 +126,8 @@ export function mount(el, params) {
 
   const search = el.querySelector('#lib-search');
   search.addEventListener('input', debounce(() => { ui.q = search.value; ui.limit = PAGE; update(); }, 120));
+  search.addEventListener('input', debounce(runMeaning, 350));
+  if (ui.q) runMeaning();
   el.onclick = onClick;
   el.onchange = async (e) => {
     if (e.target.matches('[data-theme-pick]')) { await pickTheme(e.target); return; }
@@ -195,7 +197,8 @@ export function update() {
   const live = new Set(state.items.map((i) => i.id));
   ui.checked.forEach((id) => { if (!live.has(id)) ui.checked.delete(id); });
   const nChecked = list.filter((i) => ui.checked.has(i.id)).length;
-  root.querySelector('[data-count]').innerHTML = `<label class="select-all"><input type="checkbox" data-select-all ${list.length && nChecked === list.length ? 'checked' : ''} ${list.length ? '' : 'disabled'} aria-label="Select all ${list.length} results"></label><span class="grow"><strong>${list.length}</strong> ${list.length === 1 ? 'result' : 'results'}${filtersOn ? ` of ${total}` : ''}${callNote ? ` from the ${esc(callNote.company)} call on ${esc(fmtDate(callNote.date))}` : ''}${ui.ids ? ' (selected questions)' : ''}</span>
+  const nMeaning = meaningMatches(list).length;
+  root.querySelector('[data-count]').innerHTML = `<label class="select-all"><input type="checkbox" data-select-all ${list.length && nChecked === list.length ? 'checked' : ''} ${list.length ? '' : 'disabled'} aria-label="Select all ${list.length} results"></label><span class="grow"><strong>${list.length}</strong> ${list.length === 1 ? 'result' : 'results'}${filtersOn ? ` of ${total}` : ''}${callNote ? ` from the ${esc(callNote.company)} call on ${esc(fmtDate(callNote.date))}` : ''}${ui.ids ? ' (selected questions)' : ''}${nMeaning ? ` <span class="muted">+ ${nMeaning} related by meaning</span>` : ''}</span>
     ${filtersOn ? '<button type="button" class="link-btn" data-act="reset">Clear filters</button>' : ''}
     <span class="tabs density" role="tablist" aria-label="Row size">
       <button type="button" class="tab" role="tab" data-density="comfortable" aria-selected="${ui.density === 'comfortable'}">Comfortable</button>
@@ -206,45 +209,50 @@ export function update() {
   paintBulk();
 
   const listEl = root.querySelector('[data-list]');
-  if (!list.length) {
+  const thr = state.config.shortWordThreshold;
+  const renderRow = (i, extra = '') => {
+    const th = i.themeId ? themeById(i.themeId) : null;
+    const on = ui.checked.has(i.id);
+    const verdict = i.verdict ? `<span class="vbadge v-${i.verdict}">${verdictLabel(i.verdict)}</span>` : '';
+    const approved = i.standard ? '<span class="badge badge-ok">Approved</span>' : '';
+    const body = ui.density === 'compact'
+      ? `<span class="row-id">#${i.id}</span>
+         <span class="row-q-compact">${highlight(i.question, t)}</span>
+         <span class="row-tags">${extra}${themeTagHTML(i, { short: true })}<span class="tag">${esc(i.topic)}</span>${verdict}${approved}</span>`
+      : `<span class="row-id">#${i.id}</span>
+      <span class="row-body">
+        <span class="row-q">${highlight(i.question, t)}</span>
+        <span class="row-a">${highlight(i.answer, t)}</span>
+        <span class="row-meta">
+          ${extra}<span>${highlight(accountOf(i), t)}</span>${i.askedAt ? `<span aria-hidden="true">·</span><span>${esc(fmtDate(i.askedAt))}</span>` : ''}<span aria-hidden="true">·</span><span>${highlight(i.answeredBy, t)}</span>
+          ${themeTagHTML(i, { short: true })}
+          <span class="tag">${esc(i.topic)}</span>
+          ${verdict}
+          ${i.kind === 'feedback' ? '<span class="badge badge-accent">Prospect feedback</span>' : ''}
+          ${i.standard ? '<span class="badge badge-ok">Approved answer</span>' : ''}
+          ${isNoAnswer(i.answer) ? '<span class="badge badge-warn">No answer</span>' : wordCount(i.answer) < thr ? '<span class="badge badge-warn">Brief</span>' : ''}
+          ${i.followUp && !i.followUp.done ? '<span class="badge badge-warn">Follow-up open</span>' : ''}
+        </span>
+      </span>`;
+    return `
+    <div class="row${th ? ' has-theme' : ''}${on ? ' checked' : ''}" ${th ? `style="--tc:${themeHex(th)}"` : ''} role="listitem" data-row="${i.id}" aria-current="${i.id === ui.sel}">
+      <label class="row-check"><input type="checkbox" data-check="${i.id}" ${on ? 'checked' : ''} aria-label="Select #${i.id}"></label>
+      <button type="button" class="row-main" data-id="${i.id}">${body}</button>
+    </div>`;
+  };
+  // Related by meaning: only while searching, never repeating a keyword match, same filters applied.
+  const meaning = meaningMatches(list);
+  listEl.className = `list ${ui.density}`;
+  if (!list.length && !meaning.length) {
     listEl.innerHTML = total
-      ? `<div class="empty"><strong>No questions match</strong><span>Try fewer words or clear a filter.</span><button type="button" class="btn btn-sm" data-act="reset">Clear filters</button></div>`
+      ? `<div class="empty"><strong>No questions match</strong><span>${ui.q && ui.meaning?.pending ? 'Checking for questions with a similar meaning…' : 'Try fewer words or clear a filter.'}</span><button type="button" class="btn btn-sm" data-act="reset">Clear filters</button></div>`
       : `<div class="empty"><strong>The library is empty</strong><span>Log a call or import a spreadsheet to get started.</span>
          <div class="page-actions"><button type="button" class="btn" data-act="import">Import</button><button type="button" class="btn btn-primary" data-act="log">Log a call</button></div></div>`;
   } else {
-    const thr = state.config.shortWordThreshold;
-    listEl.className = `list ${ui.density}`;
-    listEl.innerHTML = list.slice(0, ui.limit).map((i) => {
-      const th = i.themeId ? themeById(i.themeId) : null;
-      const on = ui.checked.has(i.id);
-      const verdict = i.verdict ? `<span class="vbadge v-${i.verdict}">${verdictLabel(i.verdict)}</span>` : '';
-      const approved = i.standard ? '<span class="badge badge-ok">Approved</span>' : '';
-      const body = ui.density === 'compact'
-        ? `<span class="row-id">#${i.id}</span>
-           <span class="row-q-compact">${highlight(i.question, t)}</span>
-           <span class="row-tags">${themeTagHTML(i, { short: true })}<span class="tag">${esc(i.topic)}</span>${verdict}${approved}</span>`
-        : `<span class="row-id">#${i.id}</span>
-        <span class="row-body">
-          <span class="row-q">${highlight(i.question, t)}</span>
-          <span class="row-a">${highlight(i.answer, t)}</span>
-          <span class="row-meta">
-            <span>${highlight(accountOf(i), t)}</span>${i.askedAt ? `<span aria-hidden="true">·</span><span>${esc(fmtDate(i.askedAt))}</span>` : ''}<span aria-hidden="true">·</span><span>${highlight(i.answeredBy, t)}</span>
-            ${themeTagHTML(i, { short: true })}
-            <span class="tag">${esc(i.topic)}</span>
-            ${verdict}
-            ${i.kind === 'feedback' ? '<span class="badge badge-accent">Prospect feedback</span>' : ''}
-            ${i.standard ? '<span class="badge badge-ok">Approved answer</span>' : ''}
-            ${isNoAnswer(i.answer) ? '<span class="badge badge-warn">No answer</span>' : wordCount(i.answer) < thr ? '<span class="badge badge-warn">Brief</span>' : ''}
-            ${i.followUp && !i.followUp.done ? '<span class="badge badge-warn">Follow-up open</span>' : ''}
-          </span>
-        </span>`;
-      return `
-      <div class="row${th ? ' has-theme' : ''}${on ? ' checked' : ''}" ${th ? `style="--tc:${themeHex(th)}"` : ''} role="listitem" data-row="${i.id}" aria-current="${i.id === ui.sel}">
-        <label class="row-check"><input type="checkbox" data-check="${i.id}" ${on ? 'checked' : ''} aria-label="Select #${i.id}"></label>
-        <button type="button" class="row-main" data-id="${i.id}">${body}</button>
-      </div>`;
-    }).join('') + (list.length > ui.limit
-        ? `<div class="more"><button type="button" class="btn btn-sm" data-act="more">Show ${Math.min(PAGE, list.length - ui.limit)} more</button></div>` : '');
+    listEl.innerHTML = list.slice(0, ui.limit).map((i) => renderRow(i)).join('')
+      + (list.length > ui.limit ? `<div class="more"><button type="button" class="btn btn-sm" data-act="more">Show ${Math.min(PAGE, list.length - ui.limit)} more</button></div>` : '')
+      + (meaning.length ? `<div class="meaning-head" role="presentation"><strong>Related by meaning</strong><span>${list.length ? 'Different words, similar question' : 'No exact word matches; these are close in meaning'}</span></div>`
+        + meaning.map(({ item, score }) => renderRow(item, `<span class="meaning-score" title="Meaning match">${score}%</span>`)).join('') : '');
   }
 
   if ((ui.sel == null || !getItem(ui.sel)) && list.length && !matchMedia('(max-width: 860px)').matches) ui.sel = list[0].id;
@@ -549,6 +557,28 @@ async function onClick(e) {
       break;
     }
   }
+}
+
+/** Ask the model for questions close in meaning to the current search. */
+async function runMeaning() {
+  const q = ui.q.trim();
+  if (q.length < 4) { ui.meaning = null; return; }
+  ui.meaning = { q, pending: true, hits: [] };
+  try {
+    const hits = await searchByMeaning(q);
+    if (ui.q.trim() !== q) return; // a newer search started
+    ui.meaning = { q, pending: false, hits: hits || [] };
+  } catch {
+    ui.meaning = { q, pending: false, hits: [] };
+  }
+  update();
+}
+
+function meaningMatches(list) {
+  if (!ui.q.trim() || !ui.meaning || ui.meaning.q !== ui.q.trim() || !ui.meaning.hits.length) return [];
+  const shown = new Set(list.map((i) => i.id));
+  const allowed = new Set(filtered({ ignoreText: true }).map((i) => i.id));
+  return ui.meaning.hits.filter((h) => !shown.has(h.id) && allowed.has(h.id)).map((h) => ({ item: getItem(h.id), score: h.score })).filter((x) => x.item);
 }
 
 async function exportView() {

@@ -124,6 +124,7 @@ The app uses two thresholds:
 
 - **Comfortable or Compact** (above the results): Compact shows one line per question, with its theme tag, category, verdict and approval. Each browser remembers the choice.
 - **Sort by** newest or oldest, number (high to low or low to high), category, theme, account or rep. Theme sort puts questions without a theme last.
+- **Search by meaning:** once smart matching has loaded, a search also lists questions with a similar meaning under **Related by meaning**, each with its score. Exact word matches always come first, and your other filters still apply. For example, "cost for extra users" finds "Is there a fee for the LMS subscription?" A result needs 30% or more, except the single best one, which can show from 22%.
 - **Tick questions to act on several at once:**
   - **Shift+click** ticks a range.
   - **The box above the list** ticks everything matching your current search and filters.

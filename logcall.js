@@ -4,6 +4,7 @@
 import { state, logCall, matchText, matchTheme, getIndex, companyOf, contactOf } from './store.js';
 import { VERDICTS, suggestVerdict, detectFollowUp } from './model.js';
 import { openDialog, toast, toastError } from './ui.js';
+import { parseNotes } from './notes.js';
 import { esc, icon, debounce, todayISO, addDaysISO, uid, repNames } from './utils.js';
 
 export const CALL_TYPES = ['Discovery', 'Demo', 'Pricing call', 'Technical deep dive', 'Email', 'RFP', 'Onsite', 'Other', 'Not recorded'];
@@ -40,7 +41,14 @@ export function openLogCall(callId = null, { onSaved } = {}) {
         <datalist id="dl-contacts">${contacts.map((c) => `<option value="${esc(c)}">`).join('')}</datalist>
         <datalist id="dl-reps">${reps.map((c) => `<option value="${esc(c)}">`).join('')}</datalist>
       </form>`,
-    body: `<div id="q-rows" class="q-rows"></div>
+    body: `<details class="paste-notes" id="paste-notes">
+        <summary>Paste call notes</summary>
+        <p class="field-hint">Paste notes and they’re split into questions: any line with a question mark, or starting with “Q:”, begins a question, and the lines after it become its answer. Bullets and speaker names (“Kash:”) are tidied up. Check the rows before saving.</p>
+        <label class="visually-hidden" for="notes-in">Call notes</label>
+        <textarea class="textarea" id="notes-in" rows="7" placeholder="Q: Can the PTP be completed on a phone?&#10;A: Yes, through the mobile app, including offline.&#10;&#10;- Is SSO supported? Yes, SAML with Azure AD."></textarea>
+        <div class="toolbar"><button type="button" class="btn btn-primary" data-parse>Split into questions</button><span class="field-hint" id="parse-result" aria-live="polite"></span></div>
+      </details>
+      <div id="q-rows" class="q-rows"></div>
       <button type="button" class="btn" data-add-row>${icon('plus', 'icon-sm')}Add another question</button>
       <p class="field-hint">Press Enter in an answer to start the next question. Shift+Enter adds a line break.</p>`,
     foot: `<span class="field-hint" id="call-count"></span>
@@ -111,7 +119,7 @@ export function openLogCall(callId = null, { onSaved } = {}) {
     $('#call-count').textContent = `${rows.filter((r) => r.question.trim()).length} new questions${existing ? ` · ${existingCount} already on this call` : ''}`;
   };
 
-  const suggest = debounce(async (n) => {
+  async function suggestRow(n) {
     const r = rows[n];
     if (!r) return;
     const repNow = $('#c-rep').value.trim();
@@ -143,7 +151,8 @@ export function openLogCall(callId = null, { onSaved } = {}) {
     }
     if (!r.topic) r.topic = state.categories[0] || 'General Operations';
     paintSugg(n);
-  }, 350);
+  }
+  const suggest = debounce(suggestRow, 350);
 
   rowsEl.addEventListener('input', (e) => {
     const rowEl = e.target.closest('[data-row]');
@@ -185,10 +194,30 @@ export function openLogCall(callId = null, { onSaved } = {}) {
     if (rm) { rows.splice(Number(rm.dataset.remove), 1); render(); return; }
     if (t.closest('[data-add-row]')) { rows.push(newRow()); render(`#q${rows.length - 1}`); return; }
     if (t.closest('[data-save]')) save();
+    if (t.closest('[data-parse]')) splitNotes();
   });
   d.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); save(); }
   });
+
+  async function splitNotes() {
+    const text = $('#notes-in').value;
+    const { pairs, skipped } = parseNotes(text);
+    const out = $('#parse-result');
+    if (!pairs.length) {
+      out.textContent = 'No questions found. Make sure each question ends with “?” or starts with “Q:”.';
+      return;
+    }
+    // Keep rows already filled in; replace empty ones.
+    for (let n = rows.length - 1; n >= 0; n--) if (!rows[n].question.trim() && !rows[n].answer.trim()) rows.splice(n, 1);
+    const start = rows.length;
+    pairs.forEach((p) => rows.push({ ...newRow(), question: p.question, answer: p.answer }));
+    render();
+    out.textContent = `Found ${pairs.length} question${pairs.length === 1 ? '' : 's'}${skipped ? `; ${skipped} other line${skipped === 1 ? ' was' : 's were'} left out` : ''}. Suggesting themes…`;
+    $('#paste-notes').open = false;
+    for (let n = start; n < rows.length; n++) await suggestRow(n);
+    out.textContent = `Found ${pairs.length} question${pairs.length === 1 ? '' : 's'}${skipped ? `; ${skipped} other line${skipped === 1 ? ' was' : 's were'} left out (headings, attendees and the like)` : ''}. Check them below.`;
+  }
 
   async function save() {
     const details = {
