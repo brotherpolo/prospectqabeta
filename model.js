@@ -309,3 +309,96 @@ export function computeInbox() {
   inboxMemo = { key: [state.items, state.config, idx], value };
   return value;
 }
+
+// ---------- What changed ----------
+/** A theme or account only counts as moving if at least this many accounts moved. */
+export const MIN_MOVE = 2;
+const STAGE_ORDER = ['prospecting', 'qualification', 'discovery', 'needs analysis', 'demo', 'evaluation', 'value proposition', 'proposal', 'proposal/price quote', 'negotiation', 'negotiation/review', 'closed won', 'closed lost'];
+
+/** Start and end dates (YYYY-MM-DD) of a period, or of the one before it (offset 1). */
+export function periodRange(p, offset = 0) {
+  const days = PERIODS[p].days;
+  if (!days) return null;
+  const end = new Date(Date.now() - offset * days * DAY);
+  const start = new Date(end.getTime() - days * DAY + DAY);
+  const iso = (d) => d.toISOString().slice(0, 10);
+  return { start: iso(start), end: iso(end) };
+}
+
+/** Everything that changed in period p compared with the period before. Null for All time. */
+export function whatChanged(p) {
+  if (!PERIODS[p].days) return null;
+  const qs = state.items.filter(isQuestion);
+  const cur = qs.filter((i) => inPeriod(i, p));
+  const prev = qs.filter((i) => inPeriod(i, p, 1));
+  const range = periodRange(p);
+  const accts = (list) => new Set(list.map(accountOf));
+  const headline = {
+    questions: cur.length, accounts: accts(cur).size,
+    prevQuestions: prev.length, prevAccounts: accts(prev).size,
+    undated: qs.filter((i) => !i.askedAt).length,
+  };
+
+  const themes = effectiveThemes().map((t) => {
+    const items = t.ids.map((id) => state.items.find((x) => x.id === id)).filter(Boolean);
+    const c = items.filter((i) => inPeriod(i, p)), pr = items.filter((i) => inPeriod(i, p, 1));
+    const dated = items.filter((i) => i.askedAt).map((i) => i.askedAt).sort();
+    return { t, items, cur: c, prev: pr, curAccts: [...accts(c)], prevAccts: [...accts(pr)], first: dated[0] || null };
+  });
+
+  const moved = themes.map((x) => ({ ...x, delta: x.curAccts.length - x.prevAccts.length }));
+  const rising = moved.filter((x) => x.delta >= MIN_MOVE).sort((a, b) => b.delta - a.delta || b.cur.length - a.cur.length);
+  const falling = moved.filter((x) => x.delta <= -MIN_MOVE).sort((a, b) => a.delta - b.delta);
+  const newThemes = themes.filter((x) => x.cur.length && x.first && x.first >= range.start && !x.prev.length)
+    .sort((a, b) => b.curAccts.length - a.curAccts.length || b.cur.length - a.cur.length);
+
+  // Gaps and promises raised this period (confirmed verdicts only), grouped by theme
+  const tOf = themeIndex();
+  const gapMap = new Map();
+  for (const i of cur) {
+    if (!['no', 'roadmap', 'partial'].includes(i.verdict)) continue;
+    const t = tOf.get(i.id);
+    const key = t ? t.id : `q${i.id}`;
+    const g = gapMap.get(key) || { name: t ? t.name : i.question, theme: t || null, verdicts: new Set(), accounts: new Set(), ids: [] };
+    g.verdicts.add(i.verdict); g.accounts.add(accountOf(i)); g.ids.push(i.id);
+    gapMap.set(key, g);
+  }
+  const earlierGap = (g) => g.theme && g.theme.ids.some((id) => {
+    const x = state.items.find((y) => y.id === id);
+    return x && ['no', 'roadmap', 'partial'].includes(x.verdict) && x.askedAt && x.askedAt < range.start;
+  });
+  const gaps = [...gapMap.values()].map((g) => ({ ...g, firstTime: !earlierGap(g) }))
+    .sort((a, b) => b.accounts.size - a.accounts.size || b.ids.length - a.ids.length);
+
+  // Accounts with several open items right now
+  const today = new Date().toISOString().slice(0, 10);
+  const byAcct = new Map();
+  for (const i of qs) {
+    const open = i.followUp && !i.followUp.done;
+    const promise = i.verdict === 'roadmap';
+    if (!open && !promise) continue;
+    const a = byAcct.get(accountOf(i)) || { name: accountOf(i), followUps: 0, overdue: 0, promises: 0, ids: [] };
+    if (open) { a.followUps++; if (i.followUp.due && i.followUp.due < today) a.overdue++; }
+    if (promise) a.promises++;
+    a.ids.push(i.id);
+    byAcct.set(a.name, a);
+  }
+  const openAccounts = [...byAcct.values()].filter((a) => a.followUps + a.promises >= 2)
+    .sort((a, b) => b.overdue - a.overdue || (b.followUps + b.promises) - (a.followUps + a.promises));
+
+  // Themes by deal stage (from the imported Salesforce report)
+  const stageOf = (acct) => state.config.accounts?.[acct]?.stage || null;
+  let stages = null;
+  if (Object.keys(state.config.accounts || {}).length) {
+    const seen = new Set();
+    const rows = themes.filter((x) => x.cur.length).sort((a, b) => b.curAccts.length - a.curAccts.length).slice(0, 8).map((x) => {
+      const cells = {};
+      x.curAccts.forEach((a) => { const s = stageOf(a) || 'No stage'; seen.add(s); cells[s] = (cells[s] || 0) + 1; });
+      return { t: x.t, cells };
+    });
+    const rank = (s) => { const i = STAGE_ORDER.indexOf(s.toLowerCase()); return i < 0 ? (s === 'No stage' ? 999 : 500) : i; };
+    stages = { cols: [...seen].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b)), rows };
+  }
+
+  return { range, prevRange: periodRange(p, 1), headline, rising, falling, newThemes, gaps, openAccounts, stages };
+}

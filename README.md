@@ -17,6 +17,8 @@ A build-free web app. Every file sits in one folder next to `index.html`, so it 
 | `semantic.js`, `semantic-worker.js` | Runs the open AI model in a background worker and caches its results |
 | `overview.js` | **Overview**, the home screen |
 | `inbox.js` | **To do**: every decision waiting, with one-tap answers |
+| `changes.js` | The **What changed** panel (Overview and meeting summary) |
+| `summary.js` | **Meeting summary**: one printable page |
 | `library.js` | **Library**: search, filters, question detail |
 | `review.js` | **Review**: confirm themes, approve answers |
 | `themes.js` | **Themes**: rename, approve, add/remove/move questions, merge, delete |
@@ -32,7 +34,7 @@ A build-free web app. Every file sits in one folder next to `index.html`, so it 
 
 ## Uploading
 
-Upload **all** files to the repo root, replacing the old ones. Eleven files are new: `inbox.js`, `calibrate.js`, `themes.js`, `model.js`, `semantic.js`,
+Upload **all** files to the repo root, replacing the old ones. Thirteen files are new: `changes.js`, `summary.js`, `inbox.js`, `calibrate.js`, `themes.js`, `model.js`, `semantic.js`,
 `semantic-worker.js`, `overview.js`, `reps.js`, `calls.js`, `logcall.js` and `complete.js`.
 Then hard-refresh (Ctrl+Shift+R).
 
@@ -60,6 +62,22 @@ If a file is missing, the page names it instead of showing “Loading…”.
   - wrongly matches 0 of 10 unrelated pairs
   - word matching found 0 of the 9
 - **The matching check gets more reliable over time.** Matching rules shows the check live. Each Review decision adds a pair to it, and once there are 30 or more, it can recommend a threshold.
+
+## What changed and the meeting summary
+
+On the Overview, choose **Last 30 days** or **Last 90 days** to see **What changed** compared with the period before:
+
+- **Rising and falling themes,** counted by accounts. A theme only qualifies when at least 2 accounts moved, so one busy prospect can't make a trend.
+- **New themes:** first asked about this period.
+- **New gaps and promises:** No, Partial and Roadmap verdicts set this period, with "first time" marked when the theme had none before.
+- **Accounts with open items:** 2 or more open follow-ups or roadmap promises, right now.
+- **Themes by deal stage:** how many accounts at each Salesforce stage asked about each theme. This needs an imported Salesforce report.
+
+Every item links to the questions behind it.
+
+**Meeting summary**, the button at the top of the Overview, puts all of that on one A4 page: What changed, the top 8 themes and the open follow-ups. Use **Print or save as PDF**. On paper each list shows its top 5, with "N more" noted.
+
+**Excel export** (now "Export to Excel") still gives the full data behind the Overview.
 
 ## To do
 

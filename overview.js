@@ -6,6 +6,7 @@ import {
   effectiveThemes, themeIndex, verdictMix, conflictPairs, monthlyAccounts, isRepeat, shadeAttrs, themeById, themeHex,
 } from './model.js';
 import { openSalesforceImport } from './import.js';
+import { changesHTML } from './changes.js';
 import { toast, toastError } from './ui.js';
 import { esc, icon, fmtDate, todayISO, loadXLSX, pluralize } from './utils.js';
 
@@ -114,7 +115,8 @@ export function update() {
           <div class="tabs" role="tablist" aria-label="Time period">
             ${Object.entries(PERIODS).map(([id, v]) => `<button type="button" class="tab" role="tab" data-period="${id}" aria-selected="${p === id}">${v.label}</button>`).join('')}
           </div>
-          <button type="button" class="btn" data-act="export">${icon('download', 'icon-sm')}Export summary</button>
+          <a class="btn btn-primary" href="#/summary?period=${p === 'all' ? 'q' : p}">Meeting summary</a>
+          <button type="button" class="btn" data-act="export">${icon('download', 'icon-sm')}Export to Excel</button>
         </div>
       </header>
 
@@ -124,6 +126,13 @@ export function update() {
         ${kpis.map(([label, value, sub, tone]) => `
           <div class="kpi"><span class="kpi-label">${label}</span><span class="kpi-value ${tone === 'warn' ? 'warn' : ''}">${value}</span><span class="kpi-sub ${tone}">${esc(sub)}</span></div>`).join('')}
       </div>
+
+      ${p === 'all'
+        ? '<div class="notice">Choose <button type="button" class="link-btn" data-period="m">Last 30 days</button> or <button type="button" class="link-btn" data-period="q">Last 90 days</button> to see what changed compared with the period before.</div>'
+        : `<section class="card" aria-label="What changed">
+            <div class="card-head"><h2 class="card-title">What changed</h2><span class="field-hint">compared with the previous ${PERIODS[p].short}</span></div>
+            ${changesHTML(p)}
+          </section>`}
 
       <div class="split">
         <section class="card themes-card" aria-label="Top themes">
@@ -145,7 +154,6 @@ export function update() {
 
         <div class="side-col">
           ${gapsCard(p)}
-          ${risingCard(p, rows)}
           ${followCard(follow)}
         </div>
       </div>
@@ -236,15 +244,6 @@ function gapsCard(p) {
 }
 
 const unsetVerdicts = (p) => state.items.filter((i) => isQuestion(i) && inPeriod(i, p) && !i.verdict).length;
-
-function risingCard(p, rows) {
-  if (p === 'all') return `<section class="card"><h2 class="card-title">Rising</h2><p class="muted" style="margin-top:8px">Choose 30 or 90 days to compare with the period before.</p></section>`;
-  const rising = rows.map((r) => ({ name: r.t.name, d: r.accounts.length - r.prev, prev: r.prev })).filter((r) => r.d > 0).sort((a, b) => b.d - a.d).slice(0, 4);
-  return `<section class="card"><h2 class="card-title">Rising</h2>
-    ${rising.length ? `<div class="rise-list">${rising.map((r) => `<div class="rise"><span>${esc(r.name)}</span><span class="mono up">${r.prev ? `+${r.d}` : 'new'} ${r.d === 1 ? 'account' : 'accounts'}</span></div>`).join('')}</div>`
-      : `<p class="muted" style="margin-top:8px">Nothing is being asked by more accounts than in the previous ${PERIODS[p].short}.</p>`}
-  </section>`;
-}
 
 function followCard(follow) {
   const sorted = [...follow].sort((a, b) => (a.followUp.due || '9').localeCompare(b.followUp.due || '9'));
