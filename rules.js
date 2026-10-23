@@ -4,7 +4,7 @@ import {
   state, updateConfig, DEFAULT_CONFIG, getItem, currentVectors, semanticStatus, labelPair,
   MODELS, activeModelId, compareModels, adoptModel, onModelProgress,
 } from './store.js';
-import { LABELS, fitThreshold, accuracyAt } from './model.js';
+import { LABELS, fitThreshold, accuracyAt, spotSummary } from './model.js';
 import { createIndex } from './similarity.js';
 import { toast, toastError } from './ui.js';
 import { esc, icon, debounce, pluralize, relTime } from './utils.js';
@@ -182,8 +182,11 @@ const paintCheck = debounce(() => {
       ${rec ? (rec.t !== th ? `<button type="button" class="btn btn-sm" data-act="use-rec" data-key="${key}" data-rec="${rec.t}">Use ${rec.t}% (${pct(rec.correct / rec.total)})</button>` : '<span class="ok-text">✓ Best fit</span>')
         : `<span class="field-hint">${need}</span>`}</div>`;
   const groups = idx.groups();
+  const spot = spotSummary();
   root.querySelector('[data-check-summary]').innerHTML = scored.length ? `
     <p>Matching by <strong>${meaning ? 'meaning' : 'shared words'}</strong> · ${pluralize(scored.length, 'example')} · ${pluralize(groups.length, 'suggested group')}</p>
+    ${spot.n ? `<div class="check-line"><span><strong>Typical accuracy</strong> (spot check, ${pluralize(spot.n, 'pair')}${spot.n < 20 ? ', early estimate' : ''}): about ${pct(spot.accTopic)} of question pairs sorted as you would; ${pct(spot.acc)} counting “same question” separately.</span></div>`
+      : `<div class="check-line"><span class="field-hint">No typical-accuracy figure yet: these examples are mostly borderline cases. <a href="#/calibrate?kind=spot">Do a spot check</a>.</span></div>`}
     ${line('Same topic', thT, tPos, tNeg, recT, meaning ? 'semanticThreshold' : 'matchThreshold', `Tuning needs 10 related and 10 unrelated (${tPos.length}/${tNeg.length}).`)}
     ${line('Same question', thS, sPos, sNeg, recS, meaning ? 'sameThreshold' : 'sameWordThreshold', `Tuning needs 5 “same question” and 10 others (${sPos.length}/${sNeg.length}).`)}`
     : 'No examples yet. Calibrate to add some.';
@@ -222,15 +225,21 @@ function paintModels() {
   const active = activeModelId();
   const res = (id) => cmp?.results?.find((r) => r.model === id);
   const cur = res(active);
-  const okRes = (cmp?.results || []).filter((r) => r.ok && r.topicRank != null);
-  const best = okRes.sort((a, b) => b.topicRank - a.topicRank || (b.sameRank ?? 0) - (a.sameRank ?? 0))[0];
+  // Judge on typical pairs once there are enough spot-check examples; otherwise on everything.
+  const useTypical = (cmp?.results || []).some((r) => r.ok && r.typicalRank != null && r.nSpot >= 20);
+  const rank = (r) => (useTypical ? r.typicalRank : r.topicRank);
+  const okRes = (cmp?.results || []).filter((r) => r.ok && rank(r) != null);
+  const best = [...okRes].sort((a, b) => rank(b) - rank(a) || (b.sameRank ?? 0) - (a.sameRank ?? 0))[0];
   // Only call a winner when it clearly beats the model in use; small differences are noise.
-  const clear = best && cur?.ok && best.model !== active && best.topicRank - cur.topicRank >= 0.03;
+  const clear = best && cur?.ok && rank(cur) != null && best.model !== active && rank(best) - rank(cur) >= 0.03;
   root.querySelector('[data-act="compare"]').disabled = run.active || !enough || state.config.semanticMatching === false;
   el.innerHTML = `
     ${!enough ? `<div class="notice">Needs at least 10 related and 10 unrelated examples (now ${rel} and ${unrel}). <a href="#/calibrate">Calibrate</a> adds the most useful ones.</div>` : ''}
     <div class="table-wrap"><table class="table models-table">
-      <thead><tr><th>Model</th><th class="num" title="How often a related pair scores above an unrelated one">Same topic: ranking</th><th class="num">Best accuracy</th><th class="num" title="How often a same-question pair scores above the rest">Same question: ranking</th><th class="num">Time</th><th><span class="visually-hidden">Action</span></th></tr></thead>
+      <thead><tr><th>Model</th>
+        <th class="num" title="Ranking on spot-check pairs, sampled from every score level">Typical</th>
+        <th class="num" title="Ranking on borderline pairs: the deck, Review and Themes examples">Borderline</th>
+        <th class="num" title="How often a same-question pair scores above the rest">Same question</th><th class="num">Time</th><th><span class="visually-hidden">Action</span></th></tr></thead>
       <tbody>${MODELS.map((m) => {
         const r = res(m.id);
         const running = run.active && run.model === m.id;
@@ -239,13 +248,16 @@ function paintModels() {
           ${running ? `<td colspan="4" class="muted">Testing${run.pct ? `, downloading ${run.pct}%` : '…'}</td>`
             : !r ? '<td colspan="4" class="muted">Not tested yet</td>'
               : !r.ok ? `<td colspan="4" class="warn-text">Couldn’t load: ${esc(r.error)}</td>`
-                : `<td class="num mono">${pct(r.topicRank)}</td><td class="num mono">${r.topicFit ? `${pct(r.topicFit.acc)} <span class="muted">at ${r.topicFit.t}%</span>` : '–'}</td>
+                : `<td class="num mono">${r.typicalRank == null ? '<span class="muted" title="Needs spot-check examples">–</span>' : pct(r.typicalRank)}</td>
+                   <td class="num mono">${r.borderRank == null ? pct(r.topicRank) : pct(r.borderRank)}</td>
                    <td class="num mono">${r.sameRank == null ? '<span class="muted" title="Needs 3+ same-question examples">–</span>' : pct(r.sameRank)}</td><td class="num mono">${(r.ms / 1000).toFixed(1)}s</td>`}
           <td>${m.id === active ? '<span class="badge badge-ok">In use</span>'
             : r?.ok ? `<button type="button" class="btn btn-sm${clear && best.model === m.id ? ' btn-primary' : ''}" data-adopt="${esc(m.id)}">Use</button>` : ''}</td>
         </tr>`;
       }).join('')}</tbody>
     </table></div>
+    <p class="field-hint" style="margin-top:8px">Columns show <strong>ranking</strong>: how often a related pair scores above an unrelated one (100% is perfect, 50% is a coin toss). <strong>Typical</strong> uses spot-check pairs from every score level; <strong>Borderline</strong> uses the hard cases near the thresholds, where every model scores lower.
+      ${useTypical ? '' : `<a href="#/calibrate?kind=spot">Do a spot check</a> (20+ pairs) to fill in Typical; the recommendation then uses it.`}</p>
     ${cmp ? `<p class="field-hint" style="margin-top:8px">Last run ${esc(relTime(cmp.at))} by ${esc(cmp.by)} on ${pluralize(cmp.labels, 'example')}. ${
       clear ? `<strong>${esc(MODELS.find((x) => x.id === best.model).name)}</strong> ranks noticeably better than the model in use.`
         : okRes.length > 1 ? 'No clear winner: the differences are small enough to be noise. Keeping the current model is fine.' : ''}

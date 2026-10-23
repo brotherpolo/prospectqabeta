@@ -578,13 +578,13 @@ function addCheckPairs(d, ids, related) {
 }
 
 /** Record a matching example: "same", "topic" or "unrelated". */
-export function labelPair(a, b, label, from = 'calibration') {
+export function labelPair(a, b, label, from = 'calibration', extra = {}) {
   const by = userLabel();
   return mutate((d) => {
     const cfg = cfgOf(d);
     if (!Array.isArray(cfg.matchCheck)) cfg.matchCheck = structuredClone(state.config.matchCheck || []);
     cfg.matchCheck = cfg.matchCheck.filter((p) => !((p.a === a && p.b === b) || (p.a === b && p.b === a)));
-    cfg.matchCheck.push({ a, b, label, related: label !== 'unrelated', from, at: now(), by });
+    cfg.matchCheck.push({ a, b, label, related: label !== 'unrelated', from, at: now(), by, ...extra });
   });
 }
 
@@ -830,12 +830,19 @@ export async function compareModels(onStep) {
       for (let x = 0; x < list.length; x++) for (let y = x + 1; y < list.length; y++) all.push(Math.round(dot(list[x], list[y]) * 100));
       all.sort((a, b) => a - b);
       const q = Array.from({ length: 101 }, (_, k) => all[Math.min(all.length - 1, Math.floor((k / 100) * (all.length - 1)))] ?? 0);
-      const sc = labels.map((p) => ({ label: p.label || (p.related ? 'topic' : 'unrelated'), s: Math.round(dot(vec.get(p.a), vec.get(p.b)) * 100) }));
+      const sc = labels.map((p) => ({ label: p.label || (p.related ? 'topic' : 'unrelated'), spot: p.from === 'spot', s: Math.round(dot(vec.get(p.a), vec.get(p.b)) * 100) }));
+      const spot = sc.filter((x) => x.spot);
+      const spotPos = spot.filter((x) => x.label !== 'unrelated').map((x) => x.s), spotNeg = spot.filter((x) => x.label === 'unrelated').map((x) => x.s);
+      const border = sc.filter((x) => !x.spot);
+      const bPos = border.filter((x) => x.label !== 'unrelated').map((x) => x.s), bNeg = border.filter((x) => x.label === 'unrelated').map((x) => x.s);
       const tPos = sc.filter((x) => x.label !== 'unrelated').map((x) => x.s), tNeg = sc.filter((x) => x.label === 'unrelated').map((x) => x.s);
       const sPos = sc.filter((x) => x.label === 'same').map((x) => x.s), sNeg = sc.filter((x) => x.label !== 'same').map((x) => x.s);
       results.push({
         model: m.id, ok: true, ms, q, nPos: tPos.length, nNeg: tNeg.length, nSame: sPos.length,
         topicRank: auc(tPos, tNeg), topicFit: fit(tPos, tNeg),
+        // Typical: spot-check pairs from every score level. Borderline: deck, Review and Themes examples.
+        typicalRank: spotPos.length >= 5 && spotNeg.length >= 5 ? auc(spotPos, spotNeg) : null, nSpot: spot.length,
+        borderRank: bPos.length >= 5 && bNeg.length >= 5 ? auc(bPos, bNeg) : null,
         sameRank: sPos.length >= 3 ? auc(sPos, sNeg) : null, sameFit: sPos.length >= 3 ? fit(sPos, sNeg) : null,
       });
     } catch (err) {

@@ -402,3 +402,44 @@ export function whatChanged(p) {
 
   return { range, prevRange: periodRange(p, 1), headline, rising, falling, newThemes, gaps, openAccounts, stages };
 }
+
+// ---------- Spot check: accuracy on typical pairs ----------
+/** Score levels the spot check samples from (scores of the model in use). */
+export const SPOT_BANDS = [0, 20, 35, 50, 65, 80, 101];
+export const bandOf = (score) => Math.max(0, SPOT_BANDS.findIndex((e, i) => score >= e && score < SPOT_BANDS[i + 1]));
+
+let bandMemo = { idx: null, counts: null };
+/** How many question pairs fall in each score level: the real mix the spot check is weighted by. */
+export function bandCounts() {
+  const idx = getIndex();
+  if (bandMemo.idx === idx) return bandMemo.counts;
+  const qs = state.items.filter(isQuestion).map((i) => i.id);
+  const counts = new Array(SPOT_BANDS.length - 1).fill(0);
+  for (let x = 0; x < qs.length; x++) for (let y = x + 1; y < qs.length; y++) counts[bandOf(idx.compare(qs[x], qs[y]).score)]++;
+  bandMemo = { idx, counts };
+  return counts;
+}
+
+/**
+ * Typical accuracy: how often the current thresholds sort a question pair the way you would,
+ * estimated from spot-check labels and weighted by how common each score level really is.
+ * Three-way: unrelated / same topic / same question.
+ */
+export function spotSummary() {
+  const idx = getIndex();
+  const L = scoredLabels().filter((p) => p.from === 'spot');
+  if (!L.length) return { n: 0 };
+  const verdict = (s) => (s >= idx.sameThreshold ? 'same' : s >= idx.threshold ? 'topic' : 'unrelated');
+  const counts = bandCounts();
+  const per = counts.map(() => ({ n: 0, ok: 0, okTopic: 0 }));
+  for (const p of L) {
+    const b = per[bandOf(p.score)];
+    b.n++;
+    if (verdict(p.score) === p.label) b.ok++;
+    if ((p.score >= idx.threshold) === (p.label !== 'unrelated')) b.okTopic++;
+  }
+  let w = 0, acc = 0, accTopic = 0;
+  per.forEach((b, i) => { if (b.n) { w += counts[i]; acc += counts[i] * (b.ok / b.n); accTopic += counts[i] * (b.okTopic / b.n); } });
+  const covered = counts.reduce((a, c, i) => a + (per[i].n ? c : 0), 0) / Math.max(1, counts.reduce((a, c) => a + c, 0));
+  return { n: L.length, acc: w ? acc / w : null, accTopic: w ? accTopic / w : null, covered, per, counts };
+}

@@ -112,6 +112,24 @@ The app uses two thresholds:
 - **Reviewing your labels:** every example appears in Matching rules › Matching check, scored live. You can change or remove each one.
 - **Fitting to themes:** a new question is compared against the whole theme, using a blend of its closest member and the theme's average. On your data that found 30 of 30 held-out theme members, against 26 of 30 for closest-question alone. Theme suggestions use a bar 6 points above the same-topic threshold.
 
+## Spot check: accuracy on typical questions
+
+Calibrate matching has two decks:
+
+| Deck | What it shows | What it's for |
+|---|---|---|
+| **Borderline: tune** | pairs near the thresholds | tuning the thresholds |
+| **Spot check: measure** | random pairs from every score level | measuring accuracy |
+
+The borderline deck is deliberately hard, so it can't tell you how accurate matching is overall. The spot check can.
+
+**Typical accuracy** appears after a spot check and on Matching rules › Matching check. It's the share of question pairs the current thresholds sort the way you would. Each score level is weighted by how common it really is in your library, and in most libraries most pairs are clearly unrelated. It's marked as an early estimate until there are 20 spot-check pairs.
+
+In the model comparison:
+- **Typical** ranks models on spot-check pairs.
+- **Borderline** ranks them on the hard cases.
+- Recommendations use Typical once there are 20+ spot-check pairs.
+
 ## Comparing models
 
 Matching rules › **Model comparison** tests four open models on your labeled examples, all in the browser:
@@ -124,9 +142,7 @@ Matching rules › **Model comparison** tests four open models on your labeled e
 | all-MiniLM-L12-v2 | 34 MB |
 
 - **It needs 10 related and 10 unrelated examples;** Calibrate matching adds them.
-- **Each model is scored in two ways:**
-  - **Ranking:** how often a related pair scores above an unrelated one. This doesn't depend on any threshold.
-  - **Best accuracy:** measured at that model's own best threshold, because models score on very different scales.
+- **Each model is scored by ranking:** how often a related pair scores above an unrelated one, where 100% is perfect and 50% is a coin toss. Ranking doesn't depend on any threshold, so it's fair across models that score on different scales. It's shown separately for typical (spot-check) and borderline pairs.
 - **A winner is only suggested** when it ranks at least 3 points better than the model in use. Smaller differences are noise.
 - **Switching** keeps the thresholds equally selective on the new model's scale, by matching the same percentile of question-pair scores. With 30+ examples on each side, the thresholds are fitted to your labels instead. Each model remembers its own thresholds, so switching back restores them exactly.
 - **What it found on your data:** in my own test of 32 labeled pairs, all-MiniLM-L6-v2 and bge-small-en-v1.5 were essentially tied (pair ranking 94% vs 95%), so the default is a fine choice until your own labels say otherwise.
