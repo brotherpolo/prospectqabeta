@@ -73,9 +73,9 @@ On the Overview, choose **Last 30 days** or **Last 90 days** to see **What chang
 - **Accounts with open items:** 2 or more open follow-ups or roadmap promises, right now.
 - **Themes by deal stage:** how many accounts at each Salesforce stage asked about each theme. This needs an imported Salesforce report.
 
-Every item links to the questions behind it.
+Each section is its own card. Long lists show the top 5, with **Show all** to expand. Every item links to the questions behind it. When no questions are dated in the previous period, Rising and Falling say there's nothing to compare with yet, instead of listing every theme as rising from zero.
 
-**Meeting summary**, the button at the top of the Overview, puts all of that on one A4 page: What changed, the top 8 themes and the open follow-ups. Use **Print or save as PDF**. On paper each list shows its top 5, with "N more" noted.
+**Meeting summary**, the button at the top of the Overview, prints as two A4 pages. Page 1 is What changed; page 2 is the top 8 themes and open follow-ups. Use **Print or save as PDF**. On paper each list shows its top 5, with "N more" noted.
 
 **Excel export** (now "Export to Excel") still gives the full data behind the Overview.
 

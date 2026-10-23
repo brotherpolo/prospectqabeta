@@ -6,7 +6,7 @@ import {
   effectiveThemes, themeIndex, verdictMix, conflictPairs, monthlyAccounts, isRepeat, shadeAttrs, themeById, themeHex,
 } from './model.js';
 import { openSalesforceImport } from './import.js';
-import { changesHTML } from './changes.js';
+import { changesHTML, toggleWidget } from './changes.js';
 import { toast, toastError } from './ui.js';
 import { esc, icon, fmtDate, todayISO, loadXLSX, pluralize } from './utils.js';
 
@@ -129,8 +129,8 @@ export function update() {
 
       ${p === 'all'
         ? '<div class="notice">Choose <button type="button" class="link-btn" data-period="m">Last 30 days</button> or <button type="button" class="link-btn" data-period="q">Last 90 days</button> to see what changed compared with the period before.</div>'
-        : `<section class="card" aria-label="What changed">
-            <div class="card-head"><h2 class="card-title">What changed</h2><span class="field-hint">compared with the previous ${PERIODS[p].short}</span></div>
+        : `<section class="wc-section" aria-label="What changed">
+            <div class="section-head"><h2 class="card-title">What changed</h2><span class="field-hint">compared with the previous ${PERIODS[p].short}</span></div>
             ${changesHTML(p)}
           </section>`}
 
@@ -295,6 +295,8 @@ async function onClick(e) {
   const t = e.target;
   const per = t.closest('[data-period]');
   if (per) { ui.period = per.dataset.period; ui.open = null; history.replaceState(null, '', `#/overview?period=${ui.period}`); update(); return; }
+  const wm = t.closest('[data-wc-more]');
+  if (wm) { toggleWidget(wm.dataset.wcMore); update(); return; }
   const rk = t.closest('[data-rank]');
   if (rk) { ui.rank = rk.dataset.rank; update(); return; }
   const th = t.closest('[data-theme]');

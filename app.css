@@ -1039,3 +1039,69 @@ a.heat-cell:hover { outline: 2px solid var(--ink); outline-offset: -2px; }
   .wc-stage th, .wc-stage td { padding: 2px 5px; font-size: 9.5px; }
   .summary-top { break-inside: avoid; }
 }
+
+/* What changed: one card per widget */
+.wc-section { display: flex; flex-direction: column; gap: 10px; }
+.wc-strip { display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: baseline; font-size: 13px; padding: 10px 14px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
+.wc-strip strong.mono { font-size: 15px; font-weight: 500; }
+.wc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; align-items: start; }
+.wc-card { display: flex; flex-direction: column; gap: 8px; padding: 16px; min-width: 0; }
+.wc-wide { grid-column: span 2; }
+@media (max-width: 760px) { .wc-wide { grid-column: auto; } .wc-grid { grid-template-columns: minmax(0, 1fr); } }
+.wc-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.wc-head h3 { font-size: 15px; font-weight: 600; margin: 0; }
+.wc-count { font-family: var(--mono); font-size: 12px; background: var(--tint); color: var(--ink-2); border-radius: 999px; padding: 1px 9px; }
+.wc-hint { font-size: 12px; color: var(--muted); margin-top: -4px; }
+.wc-empty { font-size: 13px; color: var(--muted); padding: 6px 0; }
+.wc-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.wc-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: start; padding: 8px 0; border-top: 1px solid var(--line-soft); }
+.wc-row:first-child { border-top: 0; }
+.wc-row > .theme-dot { margin-top: 5px; }
+.wc-row > .vbadge { margin-top: 1px; }
+.wc-marker { width: 8px; height: 8px; border-radius: 999px; background: var(--line-strong); margin-top: 6px; }
+.wc-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.wc-title { font-size: 14px; line-height: 1.35; }
+.wc-title a { color: var(--ink); text-decoration: none; }
+.wc-title a:hover { color: var(--accent); text-decoration: underline; }
+.wc-meta { font-size: 12px; color: var(--muted); line-height: 1.4; }
+.wc-first { color: var(--accent-ink); font-weight: 500; }
+.wc-value { align-self: center; }
+.wc-delta { font-family: var(--mono); font-size: 13px; font-weight: 500; padding: 2px 8px; border-radius: 999px; }
+.wc-delta.up { background: var(--ok-soft); color: var(--ok-ink); }
+.wc-delta.down { background: var(--warn-soft); color: var(--warn-ink); }
+.wc-num { font-family: var(--mono); font-size: 13px; color: var(--ink-2); }
+.wc-more { align-self: flex-start; font-size: 13px; margin-top: 2px; }
+.wc-rule { font-size: 12px; color: var(--muted); }
+
+@media print {
+  .wc-strip { padding: 4px 0; border: 0; font-size: 10px; }
+  .wc-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .wc-wide { grid-column: span 3; }
+  .wc-card { padding: 8px; border: 1px solid #DDDCD6; break-inside: avoid; gap: 4px; }
+  .wc-head h3 { font-size: 11px; }
+  .wc-hint, .wc-meta, .wc-more, .wc-empty, .wc-rule { font-size: 9px; }
+  .wc-row { padding: 3px 0; gap: 6px; }
+  .wc-title { font-size: 10px; }
+  .wc-delta, .wc-num, .wc-count { font-size: 9px; }
+}
+@media print {
+  .wc-grid { grid-auto-flow: dense; }
+  .wc-wide { grid-column: span 1; }
+  .wc-hint { display: none; }
+  .wc-stage th, .wc-stage td { padding: 1px 3px; font-size: 8.5px; }
+  .summary-top .table th, .summary-top .table td { padding: 2px 6px; }
+}
+@media print {
+  .wc-grid { grid-auto-flow: row; }
+  .wc-wide { grid-column: 1 / -1; break-inside: auto; }
+  .wc-stage th, .wc-stage td { padding: 1px 6px; font-size: 9px; white-space: nowrap; }
+  .wc-stage td:first-child { white-space: normal; }
+  .summary-top tbody tr:nth-child(n+7) { display: none; }
+}
+@media print {
+  /* Page 1: What changed. Page 2: top themes and follow-ups. Same layout every time. */
+  .summary-top { break-before: page; }
+  .summary-top tbody tr:nth-child(n+7) { display: table-row; }
+  .summary-top .table th, .summary-top .table td { padding: 4px 8px; font-size: 10.5px; }
+}

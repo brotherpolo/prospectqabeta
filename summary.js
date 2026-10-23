@@ -61,7 +61,7 @@ export function update() {
           ${follow.length ? `<ul class="wc-list">${follow.slice(0, 6).map((i) => `<li><span class="wc-main">${esc(i.question)} <span class="muted">· ${esc(accountOf(i))}</span></span><span class="wc-side ${i.followUp.due && i.followUp.due < today ? 'warn-text' : 'muted'}">${esc(i.followUp.owner || 'No owner')}${i.followUp.due ? ` · ${i.followUp.due < today ? 'overdue since' : 'due'} ${esc(fmtDate(i.followUp.due, { year: false }))}` : ''}</span></li>`).join('')}</ul>${follow.length > 6 ? `<p class="field-hint">${follow.length - 6} more in the app.</p>` : ''}`
             : '<p class="muted">None.</p>'}
         </section>
-        <footer class="summary-foot muted">Counts are by account where noted, so one talkative prospect can’t dominate. Only verdicts confirmed by a person are counted as gaps.</footer>
+        <footer class="summary-foot muted">Prospect Q&amp;A Hub · ${esc(PERIODS[p].label)} · page 2 of 2. Counts are by account where noted, so one talkative prospect can’t dominate. Only verdicts confirmed by a person are counted as gaps.</footer>
       </article>
     </div>`;
 }
