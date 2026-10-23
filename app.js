@@ -100,7 +100,7 @@ subscribe(() => {
   }
   if (uid && state.loaded) {
     if (!current.mod && !current.pending) route();
-    else current.mod.update();
+    else if (current.mod) current.mod.update(); // a screen still loading renders fresh data when it mounts
   }
   paintShell();
 });

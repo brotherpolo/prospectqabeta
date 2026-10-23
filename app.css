@@ -1114,3 +1114,6 @@ a.heat-cell:hover { outline: 2px solid var(--ink); outline-offset: -2px; }
 .paste-notes summary { cursor: pointer; font-weight: 600; font-size: 14px; }
 .paste-notes[open] { display: flex; flex-direction: column; gap: 10px; }
 .paste-notes .textarea { min-height: 140px; font-family: var(--font); }
+.models-table td { vertical-align: middle; }
+.models-table .model-active td { background: var(--ok-soft); }
+.models-table .model-active td:first-child { box-shadow: inset 3px 0 0 var(--ok); }

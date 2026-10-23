@@ -3,7 +3,19 @@
 
 import { splitAsker, repNames } from './utils.js';
 
-export const MODEL_ID = 'all-MiniLM-L6-v2-q8';
+/** Open models that run in the browser. Sizes are the compressed downloads. */
+export const MODELS = [
+  { id: 'Xenova/all-MiniLM-L6-v2', name: 'all-MiniLM-L6-v2', size: '23 MB', pooling: 'mean', note: 'Default. Fast and small.' },
+  { id: 'Xenova/bge-small-en-v1.5', name: 'bge-small-en-v1.5', size: '34 MB', pooling: 'cls', note: 'Strong at matching questions to answers.' },
+  { id: 'Xenova/gte-small', name: 'gte-small', size: '34 MB', pooling: 'mean', note: 'General-purpose alternative.' },
+  { id: 'Xenova/all-MiniLM-L12-v2', name: 'all-MiniLM-L12-v2', size: '34 MB', pooling: 'mean', note: 'Larger sibling of the default.' },
+];
+export const DEFAULT_MODEL = MODELS[0].id;
+export const modelInfo = (id) => MODELS.find((m) => m.id === id) || MODELS[0];
+export const activeModel = (cfg) => modelInfo(cfg?.semanticModel).id;
+// The default keeps its original cache key, so vectors already cached in browsers stay valid.
+const keyPrefix = (model) => (model === DEFAULT_MODEL ? 'all-MiniLM-L6-v2-q8' : `${model}-q8`);
+export const MODEL_ID = keyPrefix(DEFAULT_MODEL);
 const listeners = new Set();
 export const status = { state: 'idle', progress: 0, message: '' }; // idle | loading | ready | error | off
 export const onStatus = (fn) => (listeners.add(fn), () => listeners.delete(fn));
@@ -13,6 +25,9 @@ function setStatus(patch) {
 }
 
 let worker = null;
+let currentModel = DEFAULT_MODEL;
+const progressListeners = new Set();
+export const onModelProgress = (fn) => (progressListeners.add(fn), () => progressListeners.delete(fn));
 let seq = 0;
 const pending = new Map();
 const progress = new Map();
@@ -24,6 +39,8 @@ function getWorker() {
   worker.onmessage = (e) => {
     const m = e.data;
     if (m.type === 'progress') {
+      progressListeners.forEach((fn) => fn(m));
+      if (m.model !== currentModel) return;
       progress.set(m.file, [m.loaded, m.total]);
       let l = 0, t = 0;
       progress.forEach(([a, b]) => { l += a; t += b; });
@@ -46,12 +63,18 @@ function getWorker() {
   return worker;
 }
 
-function call(type, texts) {
+function call(type, texts, model = currentModel) {
   return new Promise((resolve, reject) => {
     const id = ++seq;
     pending.set(id, { resolve, reject });
-    try { getWorker().postMessage({ id, type, texts }); } catch (err) { pending.delete(id); reject(err); }
+    try { getWorker().postMessage({ id, type, texts, model, pooling: modelInfo(model).pooling }); } catch (err) { pending.delete(id); reject(err); }
   });
+}
+
+/** Free a model's memory after a comparison (never the one in use). */
+export function unloadModel(model) {
+  if (model === currentModel || !worker) return Promise.resolve();
+  return call('unload', [], model).catch(() => {});
 }
 
 // ---------- Cache (IndexedDB) ----------
@@ -124,9 +147,12 @@ const memo = new Map(); // cache key -> Float32Array, so unchanged questions kee
 
 /** Vectors for every item, computing only what isn't cached. Resolves to Map(id -> Float32Array). */
 export async function vectorsFor(items, cfg) {
+  const model = activeModel(cfg);
+  if (model !== currentModel) { currentModel = model; progress.clear(); setStatus({ state: 'loading', progress: 0, message: '' }); }
   if (status.state === 'idle' || status.state === 'error') setStatus({ state: 'loading', progress: 0, message: '' });
   const clean = buildCleaner(items, cfg);
-  const keyed = items.map((it) => [it.id, `${MODEL_ID}|${hash(textFor(it, clean))}`, textFor(it, clean)]);
+  const prefix = keyPrefix(model);
+  const keyed = items.map((it) => [it.id, `${prefix}|${hash(textFor(it, clean))}`, textFor(it, clean)]);
   const missing = keyed.filter(([, k]) => !memo.has(k));
   if (missing.length) {
     const fromDb = await cacheGet(missing.map(([, k]) => k));
@@ -134,7 +160,7 @@ export async function vectorsFor(items, cfg) {
     const todo = missing.filter(([, k]) => !memo.has(k));
     if (todo.length) {
       try {
-        const vecs = await call('embed', todo.map(([, , t]) => t));
+        const vecs = await call('embed', todo.map(([, , t]) => t), model);
         const entries = todo.map(([, k], n) => [k, Float32Array.from(vecs[n])]);
         entries.forEach(([k, v]) => memo.set(k, v));
         cachePut(entries);
@@ -150,14 +176,35 @@ export async function vectorsFor(items, cfg) {
 
 /** Vector for free text (a question being typed or imported). */
 export async function embedText(text, items, cfg) {
+  const model = activeModel(cfg);
   const clean = buildCleaner(items, cfg);
   const t = clean(text);
-  const k = `${MODEL_ID}|${hash(t)}`;
+  const k = `${keyPrefix(model)}|${hash(t)}`;
   if (memo.has(k)) return memo.get(k);
-  const [v] = await call('embed', [t]);
+  const [v] = await call('embed', [t], model);
   const f = Float32Array.from(v);
   memo.set(k, f);
   return f;
 }
 
 export function turnOff() { setStatus({ state: 'off', progress: 0, message: '' }); }
+
+/** Vectors for some items with a specific model (used by the model comparison). Cached like the rest. */
+export async function vectorsWith(model, items, cfg) {
+  const clean = buildCleaner(cfg.allItems || items, cfg);
+  const prefix = keyPrefix(model);
+  const keyed = items.map((it) => [it.id, `${prefix}|${hash(textFor(it, clean))}`, textFor(it, clean)]);
+  const missing = keyed.filter(([, k]) => !memo.has(k));
+  if (missing.length) {
+    const fromDb = await cacheGet(missing.map(([, k]) => k));
+    fromDb.forEach((v, k) => memo.set(k, v instanceof Float32Array ? v : Float32Array.from(v)));
+    const todo = missing.filter(([, k]) => !memo.has(k));
+    if (todo.length) {
+      const vecs = await call('embed', todo.map(([, , t]) => t), model);
+      const entries = todo.map(([, k], n) => [k, Float32Array.from(vecs[n])]);
+      entries.forEach(([k, v]) => memo.set(k, v));
+      cachePut(entries);
+    }
+  }
+  return new Map(keyed.map(([id, k]) => [id, memo.get(k)]));
+}

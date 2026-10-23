@@ -1,39 +1,45 @@
-// Runs the open sentence-embedding model (all-MiniLM-L6-v2, Apache-2.0) off the main thread.
-// The model (~23 MB) downloads once from Hugging Face, then the browser caches it.
+// Runs open sentence-embedding models off the main thread. Each model downloads once from
+// Hugging Face (quantized, 23–34 MB), then the browser caches it.
 import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2';
 
 env.allowLocalModels = false;
 env.useBrowserCache = true;
 
-const MODEL = 'Xenova/all-MiniLM-L6-v2';
-let extractor = null;
-let loading = null;
+const loaded = new Map(); // model id -> Promise<extractor>
 
-function load() {
-  loading ||= pipeline('feature-extraction', MODEL, {
-    quantized: true,
-    progress_callback: (p) => {
-      if (p.status === 'progress' && p.total) {
-        self.postMessage({ type: 'progress', file: p.file, loaded: p.loaded, total: p.total });
-      }
-    },
-  }).then((ex) => { extractor = ex; return ex; });
-  return loading;
+function load(model) {
+  if (!loaded.has(model)) {
+    const p = pipeline('feature-extraction', model, {
+      quantized: true,
+      progress_callback: (e) => {
+        if (e.status === 'progress' && e.total) self.postMessage({ type: 'progress', model, file: e.file, loaded: e.loaded, total: e.total });
+      },
+    });
+    p.catch(() => loaded.delete(model));
+    loaded.set(model, p);
+  }
+  return loaded.get(model);
 }
 
 self.onmessage = async (e) => {
-  const { id, type, texts } = e.data;
+  const { id, type, texts, model, pooling } = e.data;
   try {
-    await load();
+    if (type === 'unload') {
+      const p = loaded.get(model);
+      loaded.delete(model);
+      if (p) { try { (await p).dispose?.(); } catch { /* already gone */ } }
+      self.postMessage({ id, type: 'ready' });
+      return;
+    }
+    const extractor = await load(model);
     if (type === 'load') { self.postMessage({ id, type: 'ready' }); return; }
     const out = [];
     for (let i = 0; i < texts.length; i += 16) {
-      const res = await extractor(texts.slice(i, i + 16), { pooling: 'mean', normalize: true });
+      const res = await extractor(texts.slice(i, i + 16), { pooling: pooling || 'mean', normalize: true });
       out.push(...res.tolist());
     }
     self.postMessage({ id, type: 'result', vectors: out });
   } catch (err) {
-    loading = null;
     self.postMessage({ id, type: 'error', message: String(err?.message || err) });
   }
 };

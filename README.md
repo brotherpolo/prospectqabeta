@@ -53,7 +53,7 @@ If a file is missing, the page names it instead of showing “Loading…”.
 
 ## Smart matching
 
-- **What it is.** Related questions are found by meaning, using an open AI model (all-MiniLM-L6-v2, Apache-2.0) that runs inside the browser. Questions are never sent anywhere.
+- **What it is.** Related questions are found by meaning, using an open AI model that runs inside the browser. The default is all-MiniLM-L6-v2 (Apache-2.0), and others can be compared and chosen. Questions are never sent anywhere.
 - **First load.** The model downloads once, about 23 MB, from Hugging Face. The browser caches it, along with each question's result.
 - **Fallback.** If the model can't load (for example, a network blocks `cdn.jsdelivr.net` or `huggingface.co`), the app uses word matching and shows “Word matching only” in the sidebar.
 - **Names are removed first.** Account, contact and rep names, plus the words under Matching rules › Words to ignore, are stripped before matching. That stops two questions from matching just because both mention “COR3”.
@@ -111,6 +111,25 @@ The app uses two thresholds:
 - **Recommendations:** after each deck, the app suggests a better threshold once there are enough examples. It needs 10 related and 10 unrelated for themes, and 5 "same question" and 10 others for duplicates. Recommendations lean strict, because a missed match is cheaper than a wrong one.
 - **Reviewing your labels:** every example appears in Matching rules › Matching check, scored live. You can change or remove each one.
 - **Fitting to themes:** a new question is compared against the whole theme, using a blend of its closest member and the theme's average. On your data that found 30 of 30 held-out theme members, against 26 of 30 for closest-question alone. Theme suggestions use a bar 6 points above the same-topic threshold.
+
+## Comparing models
+
+Matching rules › **Model comparison** tests four open models on your labeled examples, all in the browser:
+
+| Model | Download |
+|---|---|
+| all-MiniLM-L6-v2 (default) | 23 MB |
+| bge-small-en-v1.5 | 34 MB |
+| gte-small | 34 MB |
+| all-MiniLM-L12-v2 | 34 MB |
+
+- **It needs 10 related and 10 unrelated examples;** Calibrate matching adds them.
+- **Each model is scored in two ways:**
+  - **Ranking:** how often a related pair scores above an unrelated one. This doesn't depend on any threshold.
+  - **Best accuracy:** measured at that model's own best threshold, because models score on very different scales.
+- **A winner is only suggested** when it ranks at least 3 points better than the model in use. Smaller differences are noise.
+- **Switching** keeps the thresholds equally selective on the new model's scale, by matching the same percentile of question-pair scores. With 30+ examples on each side, the thresholds are fitted to your labels instead. Each model remembers its own thresholds, so switching back restores them exactly.
+- **What it found on your data:** in my own test of 32 labeled pairs, all-MiniLM-L6-v2 and bge-small-en-v1.5 were essentially tied (pair ranking 94% vs 95%), so the default is a fine choice until your own labels say otherwise.
 
 ## How the numbers work
 

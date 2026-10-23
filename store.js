@@ -129,7 +129,10 @@ export async function searchByMeaning(text, limit = 10) {
   const out = [];
   for (const [id, vec] of vectors) out.push({ id, score: Math.round(dot(v, vec) * 100) });
   out.sort((a, b) => b.score - a.score);
-  return out.filter((r, i) => r.score >= 30 || (i === 0 && r.score >= 22)).slice(0, limit);
+  // 30% / 22% for the default model; other models' scales are mapped through the threshold spread.
+  const idx = getIndex();
+  const min = Math.round(idx.threshold - 12 * idx.scale), bestMin = Math.round(idx.threshold - 20 * idx.scale);
+  return out.filter((r, i) => r.score >= min || (i === 0 && r.score >= bestMin)).slice(0, limit);
 }
 
 /** Score free text against the library, by meaning when available. */
@@ -780,3 +783,109 @@ export function openGroups() {
 
 export const companyOf = (i) => i.company || splitAsker(i.askedBy).company || '';
 export const contactOf = (i) => i.contact || splitAsker(i.askedBy).person || '';
+
+// ---------- Model comparison ----------
+export const MODELS = semantic.MODELS;
+export const activeModelId = () => semantic.activeModel(state.config);
+export const onModelProgress = semantic.onModelProgress;
+
+const auc = (pos, neg) => {
+  if (!pos.length || !neg.length) return null;
+  let w = 0;
+  for (const p of pos) for (const n of neg) w += p > n ? 1 : p === n ? 0.5 : 0;
+  return w / (pos.length * neg.length);
+};
+function fit(pos, neg) {
+  if (!pos.length || !neg.length) return null;
+  let best = -1, range = [];
+  for (let t = 0; t <= 100; t++) {
+    const c = pos.filter((x) => x >= t).length + neg.filter((x) => x < t).length;
+    if (c > best) { best = c; range = [t]; } else if (c === best) range.push(t);
+  }
+  return { t: range[Math.floor((range.length - 1) * 0.6)], acc: best / (pos.length + neg.length) };
+}
+
+/**
+ * Score every candidate model on your labeled examples. Each model is judged at its own
+ * best-fitting thresholds, because models score on different scales. Results are saved so
+ * everyone sees the latest comparison.
+ */
+export async function compareModels(onStep) {
+  const ids = new Set(state.items.map((i) => i.id));
+  const labels = (state.config.matchCheck || []).filter((p) => ids.has(p.a) && ids.has(p.b));
+  // Score every question (not just the labeled ones) so each model's score distribution is solid.
+  const items = state.items.filter((i) => i.kind !== 'feedback' || labels.some((p) => p.a === i.id || p.b === i.id));
+  const active = semantic.activeModel(state.config);
+  const results = [];
+  for (const m of semantic.MODELS) {
+    onStep?.({ model: m.id, phase: 'running' });
+    const t0 = performance.now();
+    try {
+      const vec = await semantic.vectorsWith(m.id, items, { ...state.config, allItems: state.items });
+      const ms = Math.round(performance.now() - t0);
+      // Distribution of all pair scores among these questions, as 101 percentiles, so thresholds
+      // can be translated between models without relying on a handful of labels.
+      const all = [];
+      const list = [...vec.values()];
+      for (let x = 0; x < list.length; x++) for (let y = x + 1; y < list.length; y++) all.push(Math.round(dot(list[x], list[y]) * 100));
+      all.sort((a, b) => a - b);
+      const q = Array.from({ length: 101 }, (_, k) => all[Math.min(all.length - 1, Math.floor((k / 100) * (all.length - 1)))] ?? 0);
+      const sc = labels.map((p) => ({ label: p.label || (p.related ? 'topic' : 'unrelated'), s: Math.round(dot(vec.get(p.a), vec.get(p.b)) * 100) }));
+      const tPos = sc.filter((x) => x.label !== 'unrelated').map((x) => x.s), tNeg = sc.filter((x) => x.label === 'unrelated').map((x) => x.s);
+      const sPos = sc.filter((x) => x.label === 'same').map((x) => x.s), sNeg = sc.filter((x) => x.label !== 'same').map((x) => x.s);
+      results.push({
+        model: m.id, ok: true, ms, q, nPos: tPos.length, nNeg: tNeg.length, nSame: sPos.length,
+        topicRank: auc(tPos, tNeg), topicFit: fit(tPos, tNeg),
+        sameRank: sPos.length >= 3 ? auc(sPos, sNeg) : null, sameFit: sPos.length >= 3 ? fit(sPos, sNeg) : null,
+      });
+    } catch (err) {
+      results.push({ model: m.id, ok: false, error: String(err.message || err).slice(0, 160) });
+    }
+    if (m.id !== active) await semantic.unloadModel(m.id);
+    onStep?.({ model: m.id, phase: 'done' });
+  }
+  const summary = { at: now(), by: userLabel(), labels: labels.length, results };
+  await updateConfig({ modelComparison: summary });
+  return summary;
+}
+
+/** Score at the same percentile in another model's distribution. */
+function translate(score, fromQ, toQ) {
+  if (!fromQ || !toQ) return null;
+  let k = 0;
+  while (k < 100 && fromQ[k] < score) k++;
+  return toQ[k];
+}
+
+const ENOUGH_TO_FIT = 30; // labeled examples per side before fitted thresholds are trusted
+
+/**
+ * Switch models. Thresholds are translated so they stay equally selective on the new model's
+ * scale (same percentile of question-pair scores). Only with plenty of examples (30+ each side)
+ * are they fitted to the labels instead. Returns how the thresholds were set.
+ */
+export function adoptModel(modelId) {
+  const cmp = state.config.modelComparison;
+  const res = (id) => cmp?.results?.find((r) => r.model === id && r.ok);
+  const fromId = semantic.activeModel(state.config);
+  const from = res(fromId), to = res(modelId);
+  const curT = state.config.semanticThreshold, curS = state.config.sameThreshold;
+  // Each model remembers its own thresholds, so switching back restores them exactly.
+  const saved = { ...(state.config.modelThresholds || {}), [fromId]: { topic: curT, same: curS } };
+  let topic, same, how;
+  if (saved[modelId]) {
+    ({ topic, same } = saved[modelId]); how = 'restored from when this model was last used';
+    return updateConfig({ semanticModel: modelId, semanticThreshold: topic, sameThreshold: same, modelThresholds: saved }).then((ok) => ok && { topic, same, how });
+  }
+  if (modelId === semantic.DEFAULT_MODEL && !to) {
+    return updateConfig({ semanticModel: modelId, semanticThreshold: 42, sameThreshold: 70, modelThresholds: saved }).then((ok) => ok && { topic: 42, same: 70, how: 'defaults' });
+  }
+  if (to?.topicFit && to.nPos >= ENOUGH_TO_FIT && to.nNeg >= ENOUGH_TO_FIT) { topic = to.topicFit.t; how = 'fitted to your examples'; }
+  else { topic = translate(curT, from?.q, to?.q); how = 'kept equally selective'; }
+  if (to?.sameFit && to.nSame >= 10 && to.nPos + to.nNeg - to.nSame >= ENOUGH_TO_FIT) same = to.sameFit.t;
+  else same = translate(curS, from?.q, to?.q);
+  if (topic == null) topic = to?.topicFit?.t ?? curT;
+  if (same == null) same = Math.round(topic + (100 - topic) * 0.48);
+  same = Math.max(same, topic + 5);
+  return updateConfig({ semanticModel: modelId, semanticThreshold: topic, sameThreshold: same, modelThresholds: saved }).then((ok) => ok && { topic, same, how });
+}

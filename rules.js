@@ -1,13 +1,17 @@
 // Matching rules: how related questions are found, checked against an answer key from your own data.
 
-import { state, updateConfig, DEFAULT_CONFIG, getItem, currentVectors, semanticStatus, labelPair } from './store.js';
+import {
+  state, updateConfig, DEFAULT_CONFIG, getItem, currentVectors, semanticStatus, labelPair,
+  MODELS, activeModelId, compareModels, adoptModel, onModelProgress,
+} from './store.js';
 import { LABELS, fitThreshold, accuracyAt } from './model.js';
 import { createIndex } from './similarity.js';
 import { toast, toastError } from './ui.js';
-import { esc, icon, debounce, pluralize } from './utils.js';
+import { esc, icon, debounce, pluralize, relTime } from './utils.js';
 
 let root = null;
 let draft = {};
+const run = { active: false, model: null, pct: 0 };
 
 const WORD_SLIDERS = [
   { key: 'overlapRatio', label: 'Overlap weight', min: 0, max: 100, unit: '%', hint: 'How much a short question being covered by a longer one counts. Jaccard (shared vocabulary) gets the rest.' },
@@ -34,7 +38,7 @@ export function mount(el) {
           <section class="card">
             <div class="card-head"><h2 class="card-title">Smart matching</h2><span class="sem-state" data-sem></span></div>
             <label class="radio-line"><input type="checkbox" class="switch" data-toggle-sem>Match questions by meaning</label>
-            <p class="field-hint">An open AI model (all-MiniLM-L6-v2) runs in your browser, so questions never leave it. It downloads once (about 23 MB) and is cached. Account, contact and rep names are removed first, so questions don’t match just because they mention the same prospect.</p>
+            <p class="field-hint">An open AI model (<strong data-model-name></strong>) runs in your browser, so questions never leave it. It downloads once (about <span data-model-size></span>) and is cached. Account, contact and rep names are removed first, so questions don’t match just because they mention the same prospect.</p>
             <div class="range-field">
               <div class="range-top"><label for="r-semanticThreshold">Same topic at</label><output id="o-semanticThreshold"></output></div>
               <input type="range" id="r-semanticThreshold" data-key="semanticThreshold" min="25" max="75" step="1">
@@ -59,6 +63,12 @@ export function mount(el) {
                 <button class="btn" type="submit">${icon('plus', 'icon-sm')}Add</button>
               </form>
             </div>
+          </section>
+
+          <section class="card" aria-label="Model comparison">
+            <div class="card-head"><h2 class="card-title">Model comparison</h2><button type="button" class="btn btn-sm btn-primary" data-act="compare">Run comparison</button></div>
+            <p class="field-hint" style="margin-bottom:10px">Tests each open model on your labeled examples. Each one is judged at its own best thresholds, because models score on different scales. All run in your browser; each downloads once (23–34 MB).</p>
+            <div data-models></div>
           </section>
 
           <section class="card">
@@ -198,8 +208,57 @@ const paintCheck = debounce(() => {
     }).join('')}</tbody>` : '';
 }, 60);
 
+const pct = (x) => (x == null ? '–' : `${Math.round(x * 100)}%`);
+
+function paintModels() {
+  const el = root?.querySelector('[data-models]');
+  if (!el) return;
+  const ids = new Set(state.items.map((i) => i.id));
+  const labels = (state.config.matchCheck || []).filter((p) => ids.has(p.a) && ids.has(p.b));
+  const rel = labels.filter((p) => (p.label || (p.related ? 'topic' : 'unrelated')) !== 'unrelated').length;
+  const unrel = labels.length - rel;
+  const enough = rel >= 10 && unrel >= 10;
+  const cmp = state.config.modelComparison;
+  const active = activeModelId();
+  const res = (id) => cmp?.results?.find((r) => r.model === id);
+  const cur = res(active);
+  const okRes = (cmp?.results || []).filter((r) => r.ok && r.topicRank != null);
+  const best = okRes.sort((a, b) => b.topicRank - a.topicRank || (b.sameRank ?? 0) - (a.sameRank ?? 0))[0];
+  // Only call a winner when it clearly beats the model in use; small differences are noise.
+  const clear = best && cur?.ok && best.model !== active && best.topicRank - cur.topicRank >= 0.03;
+  root.querySelector('[data-act="compare"]').disabled = run.active || !enough || state.config.semanticMatching === false;
+  el.innerHTML = `
+    ${!enough ? `<div class="notice">Needs at least 10 related and 10 unrelated examples (now ${rel} and ${unrel}). <a href="#/calibrate">Calibrate</a> adds the most useful ones.</div>` : ''}
+    <div class="table-wrap"><table class="table models-table">
+      <thead><tr><th>Model</th><th class="num" title="How often a related pair scores above an unrelated one">Same topic: ranking</th><th class="num">Best accuracy</th><th class="num" title="How often a same-question pair scores above the rest">Same question: ranking</th><th class="num">Time</th><th><span class="visually-hidden">Action</span></th></tr></thead>
+      <tbody>${MODELS.map((m) => {
+        const r = res(m.id);
+        const running = run.active && run.model === m.id;
+        return `<tr class="${m.id === active ? 'model-active' : ''}">
+          <td><strong>${esc(m.name)}</strong> <span class="muted">· ${m.size}</span><br><span class="field-hint">${esc(m.note)}</span></td>
+          ${running ? `<td colspan="4" class="muted">Testing${run.pct ? `, downloading ${run.pct}%` : '…'}</td>`
+            : !r ? '<td colspan="4" class="muted">Not tested yet</td>'
+              : !r.ok ? `<td colspan="4" class="warn-text">Couldn’t load: ${esc(r.error)}</td>`
+                : `<td class="num mono">${pct(r.topicRank)}</td><td class="num mono">${r.topicFit ? `${pct(r.topicFit.acc)} <span class="muted">at ${r.topicFit.t}%</span>` : '–'}</td>
+                   <td class="num mono">${r.sameRank == null ? '<span class="muted" title="Needs 3+ same-question examples">–</span>' : pct(r.sameRank)}</td><td class="num mono">${(r.ms / 1000).toFixed(1)}s</td>`}
+          <td>${m.id === active ? '<span class="badge badge-ok">In use</span>'
+            : r?.ok ? `<button type="button" class="btn btn-sm${clear && best.model === m.id ? ' btn-primary' : ''}" data-adopt="${esc(m.id)}">Use</button>` : ''}</td>
+        </tr>`;
+      }).join('')}</tbody>
+    </table></div>
+    ${cmp ? `<p class="field-hint" style="margin-top:8px">Last run ${esc(relTime(cmp.at))} by ${esc(cmp.by)} on ${pluralize(cmp.labels, 'example')}. ${
+      clear ? `<strong>${esc(MODELS.find((x) => x.id === best.model).name)}</strong> ranks noticeably better than the model in use.`
+        : okRes.length > 1 ? 'No clear winner: the differences are small enough to be noise. Keeping the current model is fine.' : ''}
+      Time includes the first download.</p>` : ''}
+    <p class="field-hint">Switching translates both thresholds to the new model’s scale so they stay equally selective. With 30+ examples on each side, they’re fitted to your labels instead. You can switch back at any time.</p>`;
+}
+
 export function update() {
   if (!root) return;
+  const am = MODELS.find((m) => m.id === activeModelId());
+  root.querySelectorAll('[data-model-name]').forEach((el) => { el.textContent = am.name; });
+  root.querySelectorAll('[data-model-size]').forEach((el) => { el.textContent = am.size; });
+  paintModels();
   const c = state.config;
   const sem = semanticStatus();
   const semEl = root.querySelector('[data-sem]');
@@ -242,6 +301,23 @@ async function onClick(e) {
   const useRec = t.closest('[data-act="use-rec"]');
   if (useRec) {
     if (await updateConfig({ [useRec.dataset.key]: Number(useRec.dataset.rec) })) toast(`Threshold set to ${useRec.dataset.rec}%`);
+    return;
+  }
+  if (t.closest('[data-act="compare"]')) {
+    run.active = true; run.pct = 0;
+    const off = onModelProgress((m) => { if (m.model === run.model && m.total) { run.pct = Math.round((m.loaded / m.total) * 100); paintModels(); } });
+    try {
+      await compareModels(({ model, phase }) => { run.model = phase === 'running' ? model : null; run.pct = 0; paintModels(); });
+      toast('Comparison finished');
+    } catch (err) { toastError(`Comparison stopped: ${err.message}`); }
+    finally { off(); run.active = false; run.model = null; paintModels(); }
+    return;
+  }
+  const ad = t.closest('[data-adopt]');
+  if (ad) {
+    const name = MODELS.find((m) => m.id === ad.dataset.adopt)?.name;
+    const r = await adoptModel(ad.dataset.adopt);
+    if (r) toast(`Switched to ${name}: same topic at ${r.topic}%, same question at ${r.same}% (${r.how}). Re-scoring your questions…`, { duration: 9000 });
     return;
   }
   const tog = t.closest('[data-toggle-rule]');

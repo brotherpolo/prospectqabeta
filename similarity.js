@@ -91,7 +91,10 @@ export function createIndex(items, cfg, vectors = null) {
   const sameThreshold = semantic ? (cfg.sameThreshold ?? 70) : (cfg.sameWordThreshold ?? 60);
   // Fitting a question to an existing theme blends its closest member with the theme's average.
   // On your data that found every held-out member at a bar ~6 points above the grouping threshold.
-  const themeThreshold = semantic ? threshold + 6 : threshold;
+  // Models score on different scales, so offsets are measured in "spread" units: the gap between
+  // the two thresholds (28 points for the default model, where these offsets were tuned).
+  const scale = semantic ? Math.max(8, sameThreshold - threshold) / 28 : 1;
+  const themeThreshold = semantic ? Math.round(threshold + 6 * scale) : threshold;
   const pairCache = new Map();
   let pairs = null;
   let groups = null;
@@ -229,6 +232,6 @@ export function createIndex(items, cfg, vectors = null) {
 
   return {
     compare, allPairs, groups: getGroups, similarTo, bestMatch, bestMatchByVector, tokens,
-    mode, threshold, sameThreshold, themeThreshold, themeFit, bestTheme,
+    mode, threshold, sameThreshold, themeThreshold, scale, themeFit, bestTheme,
   };
 }
