@@ -231,7 +231,14 @@ function paintModels() {
   const okRes = (cmp?.results || []).filter((r) => r.ok && rank(r) != null);
   const best = [...okRes].sort((a, b) => rank(b) - rank(a) || (b.sameRank ?? 0) - (a.sameRank ?? 0))[0];
   // Only call a winner when it clearly beats the model in use; small differences are noise.
-  const clear = best && cur?.ok && rank(cur) != null && best.model !== active && rank(best) - rank(cur) >= 0.03;
+  // A winner needs a real lead AND enough typical (spot-check) pairs behind it:
+  //   clear     = 40+ spot-check pairs and a lead of 5+ points on Typical
+  //   promising = a lead of 5+ points (Typical) or 3+ (borderline only), but too few spot-check pairs to be sure
+  const SPOT_NEEDED = 40;
+  const nSpot = cur?.nSpot ?? 0;
+  const lead = best && cur?.ok && rank(cur) != null && best.model !== active ? rank(best) - rank(cur) : 0;
+  const clear = useTypical && nSpot >= SPOT_NEEDED && lead >= 0.05;
+  const promising = !clear && lead >= (useTypical ? 0.05 : 0.03);
   root.querySelector('[data-act="compare"]').disabled = run.active || !enough || state.config.semanticMatching === false;
   el.innerHTML = `
     ${!enough ? `<div class="notice">Needs at least 10 related and 10 unrelated examples (now ${rel} and ${unrel}). <a href="#/calibrate">Calibrate</a> adds the most useful ones.</div>` : ''}
@@ -259,7 +266,8 @@ function paintModels() {
     <p class="field-hint" style="margin-top:8px">Columns show <strong>ranking</strong>: how often a related pair scores above an unrelated one (100% is perfect, 50% is a coin toss). <strong>Typical</strong> uses spot-check pairs from every score level; <strong>Borderline</strong> uses the hard cases near the thresholds, where every model scores lower.
       ${useTypical ? '' : `<a href="#/calibrate?kind=spot">Do a spot check</a> (20+ pairs) to fill in Typical; the recommendation then uses it.`}</p>
     ${cmp ? `<p class="field-hint" style="margin-top:8px">Last run ${esc(relTime(cmp.at))} by ${esc(cmp.by)} on ${pluralize(cmp.labels, 'example')}. ${
-      clear ? `<strong>${esc(MODELS.find((x) => x.id === best.model).name)}</strong> ranks noticeably better than the model in use.`
+      clear ? `<strong>${esc(MODELS.find((x) => x.id === best.model).name)}</strong> ranks noticeably better than the model in use, on ${nSpot} spot-check pairs.`
+        : promising ? `<strong>${esc(MODELS.find((x) => x.id === best.model).name)}</strong> looks promising (${Math.round(lead * 100)} points ahead${useTypical ? ' on typical pairs' : ', on borderline pairs only'}), but ${nSpot ? `${nSpot} spot-check pairs aren’t` : 'there aren’t'} enough to be sure. <a href="#/calibrate?kind=spot">Do another spot check</a> (${Math.max(SPOT_NEEDED - nSpot, 20)} more pairs), then run the comparison again. Trying it now is safe: switching back restores your settings.`
         : okRes.length > 1 ? 'No clear winner: the differences are small enough to be noise. Keeping the current model is fine.' : ''}
       Time includes the first download.</p>` : ''}
     <p class="field-hint">Switching translates both thresholds to the new model’s scale so they stay equally selective. With 30+ examples on each side, they’re fitted to your labels instead. You can switch back at any time.</p>`;
