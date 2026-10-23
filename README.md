@@ -192,6 +192,22 @@ Matching rules › **Model comparison** tests four open models on your labeled e
 - **Restore from backup** (Calls page): replaces the current data for everyone with the backup file.
 - **To test with clean data without touching the live dataset,** set `DATA_DOC = "data-staging"` in `config.js`. Your Firestore rules must allow that path.
 
+## Moving to the new database layout
+
+**Where:** Calls › Database. It shows how full the single document is, against Firestore's 1 MB limit, and walks through the move:
+1. **Publish the new Firestore rules.** **Show the rules** has them ready to copy, with your two user IDs filled in. Then press **Check rules**.
+2. **Download a backup.**
+3. **Confirm nobody uses the original app any more,** then press **Move to the new layout** and type `move`.
+
+**What the move does:** it copies everything into one document per question, theme, call and matching example. It checks every count, then switches every open copy of the app over automatically. If the move is interrupted, nothing switches, and a retry cleans up the partial copy.
+
+**Afterwards:**
+- Saves write only what changed.
+- Every change to a question is recorded with who made it and when. See **History** on each question in the Library. History can be added to but never edited or deleted.
+- The original document is left in place as a fallback.
+
+**Going back:** in the Firebase console, delete `meta/settings` under the dataset. The app returns to the original document as it was at the moment of the move. Changes made since then need restoring from a backup.
+
 ## Compatibility
 
 - **Same Firebase project and document.** New fields are optional, and calls, themes and settings are stored inside `insightConfig`, which the original app preserves when it saves.

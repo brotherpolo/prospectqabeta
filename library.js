@@ -1,6 +1,7 @@
 import {
   state, getIndex, getItem, deleteQuestion, restoreQuestion, setVerdicts, setFollowUp, removeFromTheme, addToTheme,
   deleteQuestions, restoreQuestions, setCategory, fieldSnapshot, restoreFields, themeSnapshot, restoreThemes, searchByMeaning,
+  getHistory, dataMode,
 } from './store.js';
 import { VERDICTS, verdictLabel, suggestVerdict, accountOf, themeIndex, repsOf, themeTagHTML, themeById, themeHex } from './model.js';
 import { openQuestionDialog } from './dialogs.js';
@@ -129,6 +130,7 @@ export function mount(el, params) {
   search.addEventListener('input', debounce(runMeaning, 350));
   if (ui.q) runMeaning();
   el.onclick = onClick;
+  el.addEventListener('toggle', (e) => { if (e.target.matches?.('details[data-hist]') && e.target.open) paintHistory(e.target); }, true);
   el.onchange = async (e) => {
     if (e.target.matches('[data-theme-pick]')) { await pickTheme(e.target); return; }
     if (e.target.matches('[data-bulk-theme]') && e.target.value) { const v = e.target.value; e.target.value = ''; await bulkTheme(v); return; }
@@ -335,7 +337,11 @@ function renderDetail() {
       <div class="section-head"><h3 class="section-title">Similar questions</h3>
         ${sim.length ? `<a href="#/review?tab=pick&ids=${compareIds}" style="font-size:13px;font-weight:500">Compare side by side</a>` : ''}</div>
       ${sim.length ? sim.map((s) => simRow(s.item, s.score)).join('') : '<p class="muted" style="font-size:13px">No similar questions yet.</p>'}
-    </div>`;
+    </div>
+    <details class="hist" data-hist="${it.id}">
+      <summary class="section-title">History</summary>
+      <div class="hist-body" data-hist-body><p class="muted small">Loading…</p></div>
+    </details>`;
 }
 
 const simRow = (item, score) => `
@@ -343,6 +349,43 @@ const simRow = (item, score) => `
     <span class="sim-score">${score == null ? `#${item.id}` : `${score}%`}</span>
     <span class="sim-text"><span>${esc(item.question)}</span><span>${esc(accountOf(item))} · ${esc(item.answeredBy)}</span></span>
   </button>`;
+
+const FIELD_NAMES = {
+  question: 'Question', answer: 'Answer', verdict: 'Verdict', themeId: 'Theme', topic: 'Category', company: 'Account',
+  contact: 'Contact', askedAt: 'Date asked', answeredBy: 'Answered by', askedBy: 'Asked by', followUp: 'Follow-up',
+  standard: 'Approved answer', variantOf: 'Variant of', related: 'Linked questions', callId: 'Call', kind: 'Type',
+};
+const show = (field, v) => {
+  if (v == null || v === '') return '<span class="muted">empty</span>';
+  if (field === 'verdict') return esc(verdictLabel(v) || v);
+  if (field === 'themeId') return esc(themeById(v)?.name || 'a deleted theme');
+  if (field === 'standard') return v ? 'yes' : 'no';
+  if (field === 'followUp') return esc(`${v.owner || 'no owner'}${v.due ? `, due ${fmtDate(v.due)}` : ''}${v.done ? ', done' : ''}`);
+  const t = typeof v === 'string' ? v : JSON.stringify(v);
+  return esc(t.length > 140 ? `${t.slice(0, 140)}…` : t);
+};
+
+/** Change history for one question, loaded when its History section is opened. */
+async function paintHistory(details) {
+  const body = details.querySelector('[data-hist-body]');
+  if (dataMode() !== 'collections') {
+    body.innerHTML = '<p class="muted small">History starts recording once the database moves to the new layout (Calls › Database).</p>';
+    return;
+  }
+  try {
+    const rows = await getHistory(Number(details.dataset.hist));
+    if (!rows?.length) { body.innerHTML = '<p class="muted small">No changes recorded since the move.</p>'; return; }
+    body.innerHTML = `<ol class="hist-list">${rows.slice(0, 50).map((h) => {
+      const when = h.at ? new Date(h.at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '';
+      const what = h.op === 'create' ? 'Added this question'
+        : h.op === 'delete' ? 'Deleted this question'
+          : `${esc(FIELD_NAMES[h.field] || h.field)}: ${show(h.field, h.from)} → ${show(h.field, h.to)}`;
+      return `<li><span class="hist-what">${what}</span><span class="muted small">${esc(h.by || '')} · ${esc(when)}</span></li>`;
+    }).join('')}</ol>${rows.length > 50 ? `<p class="muted small">Showing the latest 50 of ${rows.length}.</p>` : ''}`;
+  } catch (err) {
+    body.innerHTML = `<p class="warn-text small">Couldn’t load history: ${esc(err.message)}</p>`;
+  }
+}
 
 function select(id) {
   ui.sel = id;

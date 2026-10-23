@@ -82,10 +82,23 @@ let onError = (msg) => console.error(msg);
 export const subscribe = (fn) => (listeners.add(fn), () => listeners.delete(fn));
 const emit = () => listeners.forEach((fn) => fn(state));
 
-export function configureStore({ commit, error }) {
+let backend = {};
+export function configureStore({ commit, error, ...rest }) {
   committer = commit;
   if (error) onError = error;
+  backend = rest; // mode, historyFor, migrate, canWriteNewLayout
 }
+
+/** 'single' (original one-document layout) or 'collections' (one document per question, with history). */
+export const dataMode = () => backend.mode?.() || 'single';
+export const layoutMeta = () => backend.meta?.() || null;
+export const getHistory = (qid) => (backend.historyFor ? backend.historyFor(qid) : Promise.resolve(null));
+export const canWriteNewLayout = () => backend.canWriteNewLayout();
+/** Move from the single document to the new layout. Uses the data as loaded right now. */
+export const moveToNewLayout = (onProgress) => backend.migrate(
+  { items: state.items, categories: state.categories, insightConfig: state.config }, onProgress);
+/** Rough size of the single document, against Firestore's 1 MB limit. */
+export const singleDocBytes = () => new Blob([JSON.stringify({ items: state.items, categories: state.categories, insightConfig: state.config })]).size;
 
 const semanticOn = () => state.config.semanticMatching !== false;
 
@@ -194,6 +207,7 @@ export const userLabel = () => state.user?.email || state.user?.uid || 'anonymou
  * Firestore may re-run it inside a transaction if someone else saved at the same moment.
  */
 export async function mutate(fn) {
+  const before = { items: state.items, categories: state.categories, insightConfig: state.config };
   const draft = {
     items: structuredClone(state.items),
     categories: [...state.categories],
@@ -205,7 +219,7 @@ export async function mutate(fn) {
   if (!committer) return true;
   try {
     setSync('saving');
-    await committer(fn);
+    await committer(fn, before, draft);
     setSync('synced');
     return true;
   } catch (err) {

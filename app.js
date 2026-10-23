@@ -106,7 +106,10 @@ subscribe(() => {
 });
 
 // ---------- Firebase wiring ----------
-configureStore({ commit: sync.commit, error: toastError });
+configureStore({
+  commit: sync.commit, error: toastError,
+  mode: sync.getMode, meta: sync.getMeta, historyFor: sync.historyFor, migrate: sync.migrate, canWriteNewLayout: sync.canWriteNewLayout,
+});
 sync.start({
   onUser: setUser,
   onData: receiveCloud,

@@ -1,6 +1,9 @@
 // Calls: every logged conversation, with delete (and undo) and a guarded "start fresh".
 
-import { state, deleteCall, restoreCall, startFresh, backupData, restoreBackup } from './store.js';
+import {
+  state, deleteCall, restoreCall, startFresh, backupData, restoreBackup,
+  dataMode, layoutMeta, canWriteNewLayout, moveToNewLayout, singleDocBytes,
+} from './store.js';
 import { openLogCall } from './logcall.js';
 import { openDialog, toast, toastError } from './ui.js';
 import { esc, icon, fmtDate, todayISO, downloadText, loadXLSX, pluralize } from './utils.js';
@@ -58,6 +61,8 @@ export function update() {
         <button type="button" class="btn btn-danger-outline" data-act="fresh">Start fresh…</button>
       </section>
 
+      ${databaseCard()}
+
       <section class="card danger-zone">
         <div>
           <h2 class="card-title">Backups</h2>
@@ -72,8 +77,126 @@ export function update() {
   root.querySelector('[data-restore]').onchange = (e) => e.target.files[0] && restoreFlow(e.target.files[0]);
 }
 
+// ---------- Database layout ----------
+const move = { rules: null, backup: false, oldAppRetired: false, running: false, step: '' };
+
+export const RULES = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Who may use the app: the same two accounts as before. Add more user IDs to this list
+    // to give other people access (each person's ID is shown in the app under Account).
+    function isTeam() {
+      return request.auth != null && request.auth.uid in [
+        "BJYNIOG65MebPqza3JKvtqQ1xeN2",
+        "xT0Lzm2YKJambi7BWmY5mIJWUTJ2"
+      ];
+    }
+
+    // The dataset ("data" for real use; another name such as "data-staging" for testing).
+    match /artifacts/{appId}/public/{dataDoc} {
+      allow read, write: if isTeam();
+
+      // New layout: one document per question, theme, call and matching example, plus settings.
+      match /{coll}/{docId} {
+        allow read, write: if isTeam() && coll in ['questions', 'themes', 'calls', 'labels', 'meta'];
+      }
+
+      // Change history: can be added to and read, never edited or deleted.
+      match /history/{entryId} {
+        allow read, create: if isTeam();
+      }
+    }
+  }
+}`;
+
+function databaseCard() {
+  if (dataMode() === 'collections') {
+    const m = layoutMeta();
+    return `<section class="card db-card">
+      <div class="card-head"><h2 class="card-title">Database</h2><span class="badge badge-ok">New layout</span></div>
+      <p class="muted">One document per question, theme, call and matching example. Saves write only what changed, and every change to a question is recorded in its history.${m?.migratedAt ? ` Moved ${esc(fmtDate(m.migratedAt.slice(0, 10)))}${m.migratedBy ? ` by ${esc(m.migratedBy)}` : ''}.` : ''}</p>
+      <details class="field-hint"><summary>How to go back to the original layout</summary>
+        <p>In the Firebase console, delete the document <code>meta/settings</code> under your dataset. Every copy of the app returns to the original single document, as it was at the moment of the move. Changes made since then would need restoring from a backup.</p></details>
+    </section>`;
+  }
+  const kb = Math.round(singleDocBytes() / 1024);
+  const pct = Math.round((kb / 1024) * 100);
+  const ready = move.rules === true && move.backup && move.oldAppRetired;
+  const tick = (ok) => (ok ? '<span class="ok-text">✓</span>' : '<span class="muted">○</span>');
+  return `<section class="card db-card">
+    <div class="card-head"><h2 class="card-title">Database</h2><span class="badge">Original layout</span></div>
+    <p>Everything is in one Firestore document: about <strong>${kb} KB</strong> of its 1 MB limit (${pct}%).</p>
+    <div class="bar-track" style="height:8px;max-width:420px"><span class="bar-fill ${pct > 70 ? 'warn' : ''}" style="width:${Math.max(2, pct)}%"></span></div>
+    <p class="muted">Moving to the new layout removes the limit, makes saves smaller and safer when several people work at once, and starts recording a change history on every question. The original document stays untouched as a fallback.</p>
+    <ol class="db-steps">
+      <li>${tick(move.rules === true)} <span><strong>Update your Firestore rules</strong> so the app may use the new layout.
+        <span class="toolbar"><button type="button" class="btn btn-sm" data-db="rules">Show the rules</button><button type="button" class="btn btn-sm" data-db="check">Check rules</button>
+        ${move.rules === false ? '<span class="warn-text">Not allowed yet: the rules haven’t been updated, or haven’t taken effect (allow a minute).</span>' : move.rules === true ? '<span class="ok-text">Rules allow the new layout.</span>' : ''}</span></span></li>
+      <li>${tick(move.backup)} <span><strong>Download a backup.</strong> <button type="button" class="btn btn-sm" data-db="backup">Download backup</button></span></li>
+      <li>${tick(move.oldAppRetired)} <span><label class="radio-line"><input type="checkbox" data-db="retired" ${move.oldAppRetired ? 'checked' : ''}><span><strong>Nobody is using the original app any more.</strong> After the move it would save to the old document, and those changes wouldn’t appear here.</span></label></span></li>
+    </ol>
+    <div class="actions-bar" style="justify-content:flex-start">
+      <button type="button" class="btn btn-primary" data-db="move" ${ready && !move.running ? '' : 'disabled'}>${move.running ? 'Moving…' : 'Move to the new layout'}</button>
+      ${move.running ? `<span class="muted" aria-live="polite">${esc(move.step)}</span>` : ''}
+    </div>
+  </section>`;
+}
+
+function showRules() {
+  openDialog({
+    title: 'Firestore rules for the new layout',
+    sub: 'Firebase console › Firestore Database › Rules. Replace the rules with these, then Publish.',
+    wide: true,
+    body: `<p>These keep the same two accounts as your current rules, and add the new layout. Your current data keeps working exactly as before until you press <strong>Move to the new layout</strong>.</p>
+      <pre class="rules-code">${esc(RULES)}</pre>`,
+    foot: `<button type="button" class="btn" data-copy-rules>${icon('copy', 'icon-sm')}Copy rules</button><div class="right"><button type="button" class="btn btn-primary" data-close>Done</button></div>`,
+    onMount: (d) => d.querySelector('[data-copy-rules]').addEventListener('click', async () => {
+      try { await navigator.clipboard.writeText(RULES); toast('Rules copied'); } catch { toastError('Couldn’t copy. Select the text and copy it instead.'); }
+    }),
+  });
+}
+
+async function runMove() {
+  openDialog({
+    title: 'Move to the new layout?',
+    sub: 'This copies everything, checks the copy, then switches every open copy of the app over. It takes under a minute.',
+    body: `<p>The original document is left as it is. Type <span class="kbd">move</span> to confirm.</p><input class="input" id="move-confirm" autocomplete="off">`,
+    foot: '<div class="right"><button type="button" class="btn" data-close>Cancel</button><button type="button" class="btn btn-primary" data-go disabled>Move now</button></div>',
+    onMount: (d) => {
+      const inp = d.querySelector('#move-confirm');
+      const go = d.querySelector('[data-go]');
+      inp.addEventListener('input', () => { go.disabled = inp.value.trim().toLowerCase() !== 'move'; });
+      inp.focus();
+      go.addEventListener('click', async () => {
+        d.close();
+        move.running = true; move.step = 'Starting';
+        update();
+        try {
+          const counts = await moveToNewLayout((step) => { move.step = step; update(); });
+          toast(`Moved ${counts.questions} questions, ${counts.themes} themes, ${counts.calls} calls and ${counts.labels} matching examples. Switching over…`, { duration: 8000 });
+        } catch (err) {
+          move.running = false;
+          update();
+          toastError(`The move didn’t complete: ${err.message}`);
+        }
+      });
+    },
+  });
+}
+
 async function onClick(e) {
   const t = e.target;
+  const db = t.closest('[data-db]');
+  if (db) {
+    const a = db.dataset.db;
+    if (a === 'rules') showRules();
+    else if (a === 'check') { try { move.rules = await canWriteNewLayout(); } catch (err) { toastError(err.message); } update(); }
+    else if (a === 'backup') { await downloadBackup(); move.backup = true; update(); }
+    else if (a === 'retired') { move.oldAppRetired = db.checked; update(); }
+    else if (a === 'move') runMove();
+    return;
+  }
   const edit = t.closest('[data-edit]');
   if (edit) { openLogCall(edit.dataset.edit); return; }
   const del = t.closest('[data-del]');
