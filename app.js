@@ -9,10 +9,12 @@ import { openImportDialog } from './import.js';
 import { openLogCall } from './logcall.js';
 import * as library from './library.js';
 import { semanticStatus } from './store.js';
+import { computeInbox } from './model.js';
 
 // Overview and Library load with the page; the other views load the first time they're opened.
 const VIEWS = {
   overview: () => import('./overview.js'),
+  inbox: () => import('./inbox.js'),
   library: () => Promise.resolve(library),
   review: () => import('./review.js'),
   themes: () => import('./themes.js'),
@@ -23,7 +25,7 @@ const VIEWS = {
   rules: () => import('./rules.js'),
   calibrate: () => import('./calibrate.js'),
 };
-const TITLES = { overview: 'Overview', library: 'Library', review: 'Review', themes: 'Themes', reps: 'Reps', insights: 'Insights', calls: 'Calls', complete: 'Complete records', rules: 'Matching rules', calibrate: 'Calibrate matching' };
+const TITLES = { overview: 'Overview', inbox: 'To do', library: 'Library', review: 'Review', themes: 'Themes', reps: 'Reps', insights: 'Insights', calls: 'Calls', complete: 'Complete records', rules: 'Matching rules', calibrate: 'Calibrate matching' };
 
 const $ = (s) => document.querySelector(s);
 const viewEl = $('#view');
@@ -72,6 +74,9 @@ function paintShell() {
   document.querySelectorAll('[data-count="review-tab"]').forEach((el) => { el.textContent = n ? ` · ${n}` : ''; });
   const incomplete = state.loaded ? state.items.filter((i) => i.kind !== 'feedback' && (!i.askedAt || !(i.company || /\(.+\)/.test(i.askedBy)))).length : 0;
   document.querySelectorAll('[data-count="complete"]').forEach((el) => { el.textContent = incomplete; el.hidden = !incomplete; });
+  const todo = state.loaded ? computeInbox().count : 0;
+  document.querySelectorAll('[data-count="inbox"]').forEach((el) => { el.textContent = todo > 99 ? '99+' : todo; el.hidden = !todo; });
+  document.querySelectorAll('[data-count="inbox-tab"]').forEach((el) => { el.textContent = todo ? ` · ${todo > 99 ? '99+' : todo}` : ''; });
   const sem = semanticStatus();
   const on = state.config.semanticMatching !== false;
   document.querySelectorAll('[data-sem-status]').forEach((el) => {
@@ -229,7 +234,7 @@ function openPalette() {
     { label: 'Log a call', icon: 'plus', run: actions.log },
     { label: 'New single question', icon: 'plus', run: actions.new },
     { label: 'Import questions', icon: 'upload', run: actions.import },
-    ...Object.entries(TITLES).map(([k, t]) => ({ label: `Go to ${t}`, icon: { overview: 'chart', library: 'library', review: 'review', themes: 'tag', reps: 'user', insights: 'chart', calls: 'calendar', complete: 'flag', rules: 'sliders', calibrate: 'sliders' }[k], run: () => { location.hash = `#/${k}`; } })),
+    ...Object.entries(TITLES).map(([k, t]) => ({ label: `Go to ${t}`, icon: { overview: 'chart', inbox: 'check', library: 'library', review: 'review', themes: 'tag', reps: 'user', insights: 'chart', calls: 'calendar', complete: 'flag', rules: 'sliders', calibrate: 'sliders' }[k], run: () => { location.hash = `#/${k}`; } })),
     { label: 'Manage categories', icon: 'tag', run: actions.categories },
     { label: 'Keyboard shortcuts', icon: 'more', run: openShortcuts },
   ];

@@ -225,3 +225,87 @@ export function scoredLabels() {
   return (state.config.matchCheck || []).filter((p) => ids.has(p.a) && ids.has(p.b))
     .map((p) => ({ ...p, score: idx.compare(p.a, p.b).score }));
 }
+
+// ---------- To do inbox ----------
+import { todayISO as _today, addDaysISO as _addDays } from './utils.js';
+
+export const INBOX_TYPES = {
+  followup: { label: 'Follow-up', plural: 'Follow-ups' },
+  conflict: { label: 'Answers disagree', plural: 'Disagreements' },
+  dup: { label: 'Possible duplicate', plural: 'Duplicates' },
+  fit: { label: 'Fits a theme', plural: 'Theme fits' },
+  group: { label: 'New theme?', plural: 'New themes' },
+  verdict: { label: 'Verdict', plural: 'Verdicts' },
+};
+
+let inboxMemo = { key: null, value: null };
+/** Every decision waiting for a person, most urgent first. */
+export function computeInbox() {
+  const idx = getIndex();
+  if (inboxMemo.key && inboxMemo.key[0] === state.items && inboxMemo.key[1] === state.config && inboxMemo.key[2] === idx) return inboxMemo.value;
+  const today = _today();
+  const cfg = state.config;
+  const hidden = (k) => !!cfg.inbox?.dismissed?.[k] || (cfg.inbox?.snoozed?.[k] && cfg.inbox.snoozed[k] > today);
+  const byId = new Map(state.items.map((i) => [i.id, i]));
+  const qs = state.items.filter(isQuestion);
+  const cards = [];
+  const push = (c) => { if (!hidden(c.key)) cards.push(c); };
+
+  // Follow-ups overdue or due within 3 days
+  const soon = _addDays(today, 3);
+  for (const i of qs) {
+    const f = i.followUp;
+    if (!f || f.done || (f.due && f.due > soon)) continue;
+    push({ type: 'followup', key: `fu:${i.id}`, prio: f.due && f.due < today ? 1 : 2, item: i, overdue: !!(f.due && f.due < today) });
+  }
+
+  // Near-identical pairs: opposite verdicts, or possible duplicates nobody has judged yet
+  const labeled = new Set((cfg.matchCheck || []).map((p) => (p.a < p.b ? `${p.a}-${p.b}` : `${p.b}-${p.a}`)));
+  for (const p of idx.allPairs()) {
+    if (p.score < idx.sameThreshold) continue;
+    const a = byId.get(p.a), b = byId.get(p.b);
+    if (!a || !b) continue;
+    const k = p.a < p.b ? `${p.a}-${p.b}` : `${p.b}-${p.a}`;
+    const opp = (x, y) => x.verdict === 'no' && ['yes', 'partial'].includes(y.verdict);
+    if (opp(a, b) || opp(b, a)) push({ type: 'conflict', key: `conflict:${k}`, prio: 3, a, b, score: p.score });
+    else if (!labeled.has(k) && !(a.themeId && a.themeId === b.themeId)) push({ type: 'dup', key: `dup:${k}`, prio: 4, a, b, score: p.score });
+  }
+
+  // Unthemed questions that fit an existing theme
+  const themeIds = cfg.themes.map((t) => t.id).filter((id) => qs.some((i) => i.themeId === id));
+  const fitted = new Set();
+  if (themeIds.length) {
+    for (const i of qs) {
+      if (i.themeId) continue;
+      const best = idx.bestTheme(i.id, themeIds);
+      if (best && best.score >= idx.themeThreshold) {
+        const k = `fit:${i.id}:${best.themeId}`;
+        if (!hidden(k)) fitted.add(i.id);
+        push({ type: 'fit', key: k, prio: 5, item: i, themeId: best.themeId, score: best.score });
+      }
+    }
+  }
+
+  // Suggested groups not yet confirmed (minus questions already offered to a theme)
+  for (const t of effectiveThemes()) {
+    if (t.confirmed) continue;
+    const ids = t.ids.filter((id) => !fitted.has(id));
+    if (ids.length < 2) continue;
+    push({ type: 'group', key: `group:${t.key}`, prio: 6, group: { key: t.key, ids: t.ids, title: t.name }, ids });
+  }
+
+  // Answers without a verdict
+  for (const i of qs) {
+    if (i.verdict) continue;
+    push({ type: 'verdict', key: `verdict:${i.id}`, prio: 7, item: i, suggested: suggestVerdict(i.answer, i.question) });
+  }
+
+  cards.sort((x, y) => x.prio - y.prio || (y.score || 0) - (x.score || 0));
+  const gaps = {
+    account: qs.filter((i) => !i.company && !/\(.+\)/.test(i.askedBy)).length,
+    date: qs.filter((i) => !i.askedAt).length,
+  };
+  const value = { cards, count: cards.length, gaps };
+  inboxMemo = { key: [state.items, state.config, idx], value };
+  return value;
+}

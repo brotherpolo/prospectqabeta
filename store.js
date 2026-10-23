@@ -40,6 +40,7 @@ export const DEFAULT_CONFIG = Object.freeze({
   themes: [],
   accounts: {},
   matchCheck: null,
+  inbox: { dismissed: {}, snoozed: {} },
 });
 
 // Pairs from your data used to check the matching model. Review decisions add more over time.
@@ -59,6 +60,7 @@ export function normalizeConfig(raw) {
   }
   for (const k of ['calls', 'themes']) if (!Array.isArray(merged[k])) merged[k] = [];
   if (!merged.accounts || typeof merged.accounts !== 'object') merged.accounts = {};
+  merged.inbox = { dismissed: {}, snoozed: {}, ...(c.inbox || {}) };
   return merged;
 }
 
@@ -571,6 +573,21 @@ export function unlabelPair(a, b) {
     const cfg = cfgOf(d);
     if (!Array.isArray(cfg.matchCheck)) cfg.matchCheck = structuredClone(state.config.matchCheck || []);
     cfg.matchCheck = cfg.matchCheck.filter((p) => !((p.a === a && p.b === b) || (p.a === b && p.b === a)));
+  });
+}
+
+/** To do inbox: hide a card for good, or until a date. */
+export function dismissInbox(key) {
+  return mutate((d) => { const c = cfgOf(d); c.inbox ||= {}; c.inbox.dismissed = { ...(c.inbox.dismissed || {}), [key]: now() }; });
+}
+export function snoozeInbox(key, untilISO) {
+  return mutate((d) => { const c = cfgOf(d); c.inbox ||= {}; c.inbox.snoozed = { ...(c.inbox.snoozed || {}), [key]: untilISO }; });
+}
+export function undoInbox(key) {
+  return mutate((d) => {
+    const c = cfgOf(d);
+    if (c.inbox?.dismissed) delete c.inbox.dismissed[key];
+    if (c.inbox?.snoozed) delete c.inbox.snoozed[key];
   });
 }
 

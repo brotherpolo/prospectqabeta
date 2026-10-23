@@ -16,6 +16,7 @@ A build-free web app. Every file sits in one folder next to `index.html`, so it 
 | `similarity.js` | Matching engine: by meaning, or by words as a fallback |
 | `semantic.js`, `semantic-worker.js` | Runs the open AI model in a background worker and caches its results |
 | `overview.js` | **Overview**, the home screen |
+| `inbox.js` | **To do**: every decision waiting, with one-tap answers |
 | `library.js` | **Library**: search, filters, question detail |
 | `review.js` | **Review**: confirm themes, approve answers |
 | `themes.js` | **Themes**: rename, approve, add/remove/move questions, merge, delete |
@@ -31,7 +32,7 @@ A build-free web app. Every file sits in one folder next to `index.html`, so it 
 
 ## Uploading
 
-Upload **all** files to the repo root, replacing the old ones. Ten files are new: `calibrate.js`, `themes.js`, `model.js`, `semantic.js`,
+Upload **all** files to the repo root, replacing the old ones. Eleven files are new: `inbox.js`, `calibrate.js`, `themes.js`, `model.js`, `semantic.js`,
 `semantic-worker.js`, `overview.js`, `reps.js`, `calls.js`, `logcall.js` and `complete.js`.
 Then hard-refresh (Ctrl+Shift+R).
 
@@ -59,6 +60,24 @@ If a file is missing, the page names it instead of showing “Loading…”.
   - wrongly matches 0 of 10 unrelated pairs
   - word matching found 0 of the 9
 - **The matching check gets more reliable over time.** Matching rules shows the check live. Each Review decision adds a pair to it, and once there are 30 or more, it can recommend a threshold.
+
+## To do
+
+**To do**, in the sidebar or in the phone's bottom bar, lists every decision waiting, most urgent first. A badge shows how many are left.
+
+| Card | Your options |
+|---|---|
+| **Follow-ups** overdue or due within 3 days | Done, Snooze a week |
+| **Answers disagree:** near-identical questions, one marked No and one Yes or Partial | Settle in Review, They don't conflict |
+| **Possible duplicates** at the "same question" threshold | Same question, Different questions |
+| **Fits a theme:** a question without a theme that matches an existing one | Add to theme, Not this theme |
+| **New theme?** A suggested group | name and Confirm theme, Not related |
+| **Verdicts:** the suggested one is outlined | one tap to set, or Later (hidden 14 days) |
+
+- **Undo:** every action offers Undo.
+- **Hidden cards stay hidden:** dismissed and snoozed cards stay hidden for everyone, so the list doesn't keep asking the same thing.
+- **Answers feed calibration:** duplicate answers become matching examples, and theme decisions do too.
+- **The "All" view shows 5 verdicts,** then one card that opens the rest, so a backlog doesn't bury everything else.
 
 ## Calibrating matching
 
